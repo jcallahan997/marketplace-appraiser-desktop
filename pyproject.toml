@@ -1,0 +1,35 @@
+[project]
+name = "agentic-marketplace-appraiser"
+version = "0.1.0"
+description = "LangGraph pipeline to appraise Facebook Marketplace listings using AI vision and web research"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-ollama>=0.2.0",
+    "ollama>=0.4.0",
+    "playwright>=1.49.0",
+    "beautifulsoup4>=4.12.0",
+    "Pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "markdown>=3.5.0",
+    "ddgs>=6.0.0",
+    "websockets>=12.0",
+    "anthropic>=0.40.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+marketplace-appraiser = "marketplace_appraiser.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests requiring Chrome, Ollama, or Facebook (deselect with '-m \"not integration\"')",
+]

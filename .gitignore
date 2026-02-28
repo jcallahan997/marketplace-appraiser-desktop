@@ -1,0 +1,12 @@
+output/images/
+output/*.md
+output/.Rhistory
+.env
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.DS_Store
