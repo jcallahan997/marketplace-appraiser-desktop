@@ -54,6 +54,7 @@ class AppraisalState(TypedDict):
 
     # Final output
     price_assessment: str
+    seller_ethnicity: Optional[str]
     flip_risk_level: Optional[str]
     flip_risk_summary: Optional[str]
 

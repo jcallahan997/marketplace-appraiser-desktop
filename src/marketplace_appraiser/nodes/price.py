@@ -10,6 +10,31 @@ from marketplace_appraiser.utils.safety_apis import check_safety
 
 
 # ---------------------------------------------------------------------------
+# Seller ethnicity inference (informational only)
+# ---------------------------------------------------------------------------
+
+def _infer_seller_ethnicity(name: str) -> str:
+    """Use the LLM to infer likely ethnicity from the seller's name.
+
+    This is informational context for the buyer only — NOT used in the
+    price assessment prompt or recommendations.
+    """
+    if not name:
+        return ""
+    prompt = (
+        f'Given the name "{name}", what is the most likely ethnic/cultural '
+        f"background? Respond with just the ethnicity/cultural background "
+        f"in 2-5 words. If the name is ambiguous, say \"Unclear\".\n"
+        f"Output ONLY the ethnicity, nothing else."
+    )
+    try:
+        result = invoke_llm(prompt, temperature=0.1)
+        return result.strip()
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Flip detection helpers
 # ---------------------------------------------------------------------------
 
@@ -214,6 +239,14 @@ If flip risk is MEDIUM or HIGH, this item is likely being flipped. \
 Factor this into your recommendation.\
 """
 
+    # --- Seller ethnicity (informational only — not used in prompt) ---
+    seller_ethnicity = ""
+    if seller_name:
+        print(f"  Inferring seller background: {seller_name}...")
+        seller_ethnicity = _infer_seller_ethnicity(seller_name)
+        if seller_ethnicity:
+            print(f"  Seller background: {seller_ethnicity}")
+
     # --- Safety checks ---
     print("  Running safety checks...")
     safety_info = check_safety(config.safety_api, item_fields, item_name)
@@ -275,6 +308,7 @@ Format your response clearly with labeled sections."""
 
     return {
         "price_assessment": result,
+        "seller_ethnicity": seller_ethnicity,
         "safety_info": safety_info,
         "flip_signals": flip_signals,
         "flip_risk_level": flip_risk_level,

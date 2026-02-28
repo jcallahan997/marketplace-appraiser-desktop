@@ -105,6 +105,7 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
 
     seller_joined = state.get("seller_joined", "")
     seller_listings = state.get("seller_listings", "")
+    seller_ethnicity = state.get("seller_ethnicity", "")
     listing_age_text = state.get("listing_age_text", "")
     listing_age_days = state.get("listing_age_days")
 
@@ -113,6 +114,11 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
         seller_parts = []
         if seller_name:
             seller_parts.append(seller_name)
+        if seller_ethnicity:
+            seller_parts.append(
+                f'<span style="color: #888; font-size: 13px;">'
+                f'({seller_ethnicity})</span>'
+            )
         if seller_rating:
             try:
                 rating_num = float(seller_rating.split("/")[0])
@@ -324,6 +330,8 @@ max-width: 700px; margin: 0 auto; padding: 16px; color: #222;">
         parts = []
         if seller_name:
             parts.append(seller_name)
+        if seller_ethnicity:
+            parts.append(f"({seller_ethnicity})")
         if seller_rating:
             parts.append(seller_rating)
         if seller_joined:
