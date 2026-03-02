@@ -166,27 +166,52 @@ def _analyze_with_ollama(prompt: str, image_paths: list[str], model: str) -> lis
 MAX_FLIP_SIGNALS = 15  # Hard cap — anything above this is hallucination
 
 
-def _extract_flip_signals_from_vision(analyses: list[str], item_name: str) -> list[str]:
+def _extract_flip_signals_from_vision(
+    analyses: list[str], item_name: str, item_type: str = "vehicle"
+) -> list[str]:
     """Scan all image analyses for flip/dealer indicators."""
     from marketplace_appraiser.utils.llm import invoke_llm
 
     combined = "\n".join(f"Photo {i+1}: {a}" for i, a in enumerate(analyses))
+
+    # Category-specific guidance
+    if item_type == "vehicle":
+        category_note = """\
+For VEHICLES, these are strong flip indicators:
+- Dealer lot background, commercial setting, multiple other vehicles
+- License plates removed or obscured
+- Dealer plate frames or temporary tags
+- Professional studio-quality photography with commercial backdrop"""
+    else:
+        category_note = f"""\
+For {item_type.upper()}, be VERY conservative about flip indicators:
+- Professional photos are NORMAL for {item_type} sellers — this alone \
+is NOT a flip indicator
+- Clean/staged appearance is NORMAL — people clean items before selling
+- A tidy home background is NOT suspicious
+- Only flag truly commercial/warehouse settings with multiple similar items"""
 
     prompt = f"""\
 Review these photo analyses of a {item_name} listing. Identify ONLY \
 genuine reseller or flipping indicators — things that suggest the seller \
 is a dealer or flipper rather than a private owner.
 
-Check ONLY for these specific red flags:
-- Signs of a dealer or professional reseller (commercial setting, staging)
-- Missing identifying information (plates removed, serial numbers obscured)
-- Professional photo staging inconsistent with a private seller
-- Just-cleaned/detailed appearance inconsistent with claimed condition
-- Multiple similar items visible (suggests volume seller)
+{category_note}
+
+Check for these specific red flags:
+- Signs of a professional reseller (COMMERCIAL warehouse/lot setting, NOT just a clean home)
+- Missing identifying information (for vehicles: plates removed; for electronics: serial numbers obscured)
+- Multiple SIMILAR items visible (suggests volume seller)
+- Commercially printed price tags or "for sale" signage
+
+Do NOT flag these as flip indicators:
+- Clean or well-lit photos (normal for any seller)
+- Clean/detailed appearance (people clean things before selling)
+- Protective staging like rugs or covers (normal care)
+- A tidy home or garage background
 
 Do NOT list general condition observations. Do NOT list things that are \
-ABSENT (e.g. "no damage" is not a flip signal). Only list things that ARE \
-present and indicate flipping/dealing.
+ABSENT. Only list things that ARE present and clearly indicate dealing.
 
 PHOTO ANALYSES:
 {combined}
@@ -263,7 +288,7 @@ def analyze_images(state: AppraisalState) -> dict:
         analyses = _analyze_with_ollama(prompt, image_paths, vision_model)
 
     print("  Scanning analyses for flip/reseller indicators...")
-    flip_signals = _extract_flip_signals_from_vision(analyses, item_name)
+    flip_signals = _extract_flip_signals_from_vision(analyses, item_name, item_type)
     if flip_signals:
         print(f"  Found {len(flip_signals)} flip indicator(s):")
         for sig in flip_signals:

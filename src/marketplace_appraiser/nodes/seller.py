@@ -45,8 +45,8 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
             page = await context.new_page()
 
             try:
-                await page.goto(profile_url, wait_until="networkidle", timeout=30000)
-                await page.wait_for_timeout(3000)
+                await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(5000)
 
                 # Scroll to load more listings
                 for _ in range(5):
@@ -289,6 +289,15 @@ and produce a structured seller profile.
 
 {seller_info_section}{profile_section}{web_section}
 
+CRITICAL: Web search results may contain information about DIFFERENT PEOPLE \
+with the same or similar name. Do NOT attribute criminal records, lawsuits, \
+scam reports, or negative information to this seller unless there is STRONG \
+corroborating evidence that connects it to THIS specific person (matching \
+location, matching business, matching profile details). Common names like \
+"John Smith", "David Lee", "Victor Ramirez" etc. will return many \
+irrelevant results — be explicit when web findings may not be about this \
+seller. Say "A person with a similar name..." rather than attributing it.
+
 Produce a structured assessment with these exact sections:
 
 ## Seller Type
@@ -302,18 +311,23 @@ Summarize account age, listing frequency, and total active listings.
 What types of items do they sell? Is there a pattern?
 
 ## Reputation Signals
-Summarize any reviews, complaints, or platform presence found.
+Summarize any reviews, complaints, or platform presence found. \
+Clearly distinguish between findings that are LIKELY about this seller \
+vs. findings that may be about a different person with the same name.
 
 ## Location Consistency
 Do they list from consistent locations?
 
 ## Risk Assessment
-Rate as LOW, MEDIUM, or HIGH risk with a 2-3 sentence explanation.
+Rate as LOW, MEDIUM, or HIGH risk with a 2-3 sentence explanation. \
+Do NOT inflate risk based on unverified web findings about people with \
+similar names.
 
 ## Key Findings
 3-5 bullet points of the most noteworthy discoveries.
 
-Be direct and factual. If information is missing, say so rather than guessing."""
+Be direct and factual. If information is missing, say so. If web results \
+are ambiguous about identity, explicitly note the uncertainty."""
 
     investigation = invoke_llm(prompt, temperature=0.2)
 

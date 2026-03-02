@@ -670,10 +670,11 @@ async def _scrape(url: str, item_type_override: str | None = None) -> dict:
         if page is None:
             page = await context.new_page()
             opened_new_page = True
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
         try:
-            await page.wait_for_timeout(3000)
+            # Wait for Facebook's dynamic content to render
+            await page.wait_for_timeout(5000)
 
             await _take_debug_screenshot(page, "01_after_load")
 

@@ -108,15 +108,13 @@ spots, shed skins), mold/mildew, structural cracks""",
     ],
 
     fraud_patterns=[
-        (r"\bas[- ]?is\b", "as-is"),
-        (r"\bno returns?\b", "no returns"),
-        (r"\bmust pick up\b|\bpickup only\b", "pickup only"),
-        (r"\bsmoke[- ]?free\b", "claims smoke-free"),
-        (r"\bpet[- ]?free\b", "claims pet-free"),
+        # Note: "smoke-free" and "pet-free" are NORMAL for furniture — not fraud signals
         (r"\bfirm on price\b|\bno low\s*ball", "aggressive pricing"),
         (r"\b\d{3}[-. )]+\d{3}[-. )]+\d{4}", "phone number in listing"),
         (r"\bwe deliver\b|\bdelivery available\b", "delivery offered — possible reseller"),
         (r"\bwarehouse\b|\bshowroom\b", "possible business seller"),
+        (r"\bstock\s*#?\s*\d+", "stock number"),
+        (r"\bwe\s+(finance|offer|have|accept)\b", "dealer language"),
     ],
 
     safety_api="cpsc",

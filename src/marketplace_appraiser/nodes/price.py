@@ -235,8 +235,17 @@ into your recommendation.\
         flip_block = f"""
 FLIP/RESELLER RISK ASSESSMENT:
 {flip_risk_summary}
-If flip risk is MEDIUM or HIGH, this item is likely being flipped. \
-Factor this into your recommendation.\
+This item is likely being flipped or sold by a professional reseller. \
+Flipped items often have hidden defects, deferred maintenance, and \
+inflated prices.
+
+CRITICAL FLIP RISK RULES:
+- If flip risk is HIGH: recommend PASS. The reason is BUYER PROTECTION — \
+a deceptive seller means no warranty, hidden defects, and no recourse. \
+Calculate fair value normally from market data — do NOT apply arbitrary \
+percentage discounts. The PASS is because the transaction itself is risky.
+- If flip risk is MEDIUM: recommend NEGOTIATE with caution.
+- Never recommend BUY when flip risk is MEDIUM or HIGH.\
 """
 
     # --- Seller ethnicity (informational only — not used in prompt) ---
@@ -290,15 +299,29 @@ CONDITION REPORT:
 MARKET RESEARCH:
 {market_analysis}
 
+IMPORTANT DECISION RULES:
+- HIGH flip risk → default to PASS (override only if price is 30%+ below market)
+- Seller rating below 4.0/5 → strong bias toward PASS
+- Unrated/unverifiable seller + flip indicators → PASS
+- For vehicles: brand reliability problems (e.g. Range Rover, Jaguar, \
+high-mileage German luxury) → factor in expected repair costs
+- Vision-derived readings from photos (odometers, serial numbers) are \
+UNRELIABLE — note as approximate, do NOT flag as confirmed discrepancies
+- Multiple red flags compound: 2+ serious concerns → recommend PASS
+
 Based on ALL available information, determine:
 
 1. Whether the listed price is FAIR, OVERPRICED, or UNDERPRICED
 2. A condition-adjusted fair value (a single dollar amount)
-3. Your recommendation: BUY, NEGOTIATE, or PASS
+3. Your recommendation: BUY (low risk, fair price), NEGOTIATE (moderate \
+risk, worth pursuing at lower price), or PASS (too many risk factors, \
+untrustworthy seller, or far above market — err on the side of PASS)
 4. If NEGOTIATE: provide a specific target price and rationale
 5. Confidence level: HIGH, MEDIUM, or LOW
-6. Seller trust assessment based on all available seller data
-7. Flip/reseller risk assessment if any indicators were found
+6. Seller trust assessment — weight seller reputation HEAVILY. An \
+unverifiable or suspicious seller is a major risk even if the item looks good.
+7. Flip/reseller risk assessment if any indicators were found. HIGH flip \
+risk should almost always result in PASS.
 8. Listing age impact on negotiation strategy (if applicable)
 9. A 3-4 sentence summary paragraph for the buyer
 
