@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 
 def main():
-    load_dotenv()
+    load_dotenv(override=True)
 
     from marketplace_appraiser.item_types import ITEM_TYPE_REGISTRY
 

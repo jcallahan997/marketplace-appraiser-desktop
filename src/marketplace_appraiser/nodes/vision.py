@@ -163,6 +163,9 @@ def _analyze_with_ollama(prompt: str, image_paths: list[str], model: str) -> lis
     return analyses
 
 
+MAX_FLIP_SIGNALS = 15  # Hard cap — anything above this is hallucination
+
+
 def _extract_flip_signals_from_vision(analyses: list[str], item_name: str) -> list[str]:
     """Scan all image analyses for flip/dealer indicators."""
     from marketplace_appraiser.utils.llm import invoke_llm
@@ -170,37 +173,49 @@ def _extract_flip_signals_from_vision(analyses: list[str], item_name: str) -> li
     combined = "\n".join(f"Photo {i+1}: {a}" for i, a in enumerate(analyses))
 
     prompt = f"""\
-Review these photo analyses of a {item_name} listing and identify any \
-reseller or flipping indicators. Output one signal per line, \
-or "NONE" if no indicators found.
+Review these photo analyses of a {item_name} listing. Identify ONLY \
+genuine reseller or flipping indicators — things that suggest the seller \
+is a dealer or flipper rather than a private owner.
 
-Check for:
+Check ONLY for these specific red flags:
 - Signs of a dealer or professional reseller (commercial setting, staging)
 - Missing identifying information (plates removed, serial numbers obscured)
 - Professional photo staging inconsistent with a private seller
 - Just-cleaned/detailed appearance inconsistent with claimed condition
 - Multiple similar items visible (suggests volume seller)
 
+Do NOT list general condition observations. Do NOT list things that are \
+ABSENT (e.g. "no damage" is not a flip signal). Only list things that ARE \
+present and indicate flipping/dealing.
+
 PHOTO ANALYSES:
 {combined}
 
-Output ONLY the signals, one per line. Prefix each with "VISION: ". \
-If none found, output exactly: NONE"""
+If no flip/dealer indicators are found, output exactly: NONE
+Otherwise output up to 10 signals, one per line, prefixed with "VISION: "."""
 
-    result = invoke_llm(prompt, temperature=0.1)
+    result = invoke_llm(prompt, temperature=0.1, max_tokens=512)
 
-    if result.strip().upper() == "NONE":
+    if not result or result.strip().upper() == "NONE":
         return []
 
     signals = []
     for line in result.strip().splitlines():
         line = line.strip()
-        if line and line.upper() != "NONE":
-            if not line.upper().startswith("VISION:"):
-                line = f"VISION: {line}"
-            else:
-                line = "VISION:" + line[len("VISION:"):]
-            signals.append(line)
+        if not line or line.upper() == "NONE":
+            continue
+        if not line.upper().startswith("VISION:"):
+            line = f"VISION: {line}"
+        else:
+            line = "VISION:" + line[len("VISION:"):]
+        signals.append(line)
+
+    # Hallucination guard
+    if len(signals) > MAX_FLIP_SIGNALS:
+        print(f"  WARNING: LLM generated {len(signals)} flip signals "
+              f"(>{MAX_FLIP_SIGNALS}) — hallucination detected, discarding all")
+        return []
+
     return signals
 
 

@@ -1,12 +1,18 @@
 """Shared LLM helper — uses Claude API when available, Ollama fallback."""
 
 import os
+import re
 import time
 
 
 # Retry settings for transient API errors (529 Overloaded, 5xx, etc.)
 MAX_RETRIES = 5
 INITIAL_BACKOFF = 2  # seconds
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> blocks from Ollama reasoning models."""
+    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
 def _detect_provider() -> tuple[bool, str]:
@@ -26,7 +32,7 @@ def _detect_provider() -> tuple[bool, str]:
     return use_claude, text_model
 
 
-def invoke_llm(prompt: str, temperature: float = 0.3) -> str:
+def invoke_llm(prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
     """Send a text prompt to the best available LLM and return the response.
 
     Provider auto-detection:
@@ -51,7 +57,7 @@ def invoke_llm(prompt: str, temperature: float = 0.3) -> str:
             try:
                 response = client.messages.create(
                     model=text_model,
-                    max_tokens=4096,
+                    max_tokens=max_tokens,
                     temperature=temperature,
                     messages=[{"role": "user", "content": prompt}],
                 )
@@ -68,6 +74,7 @@ def invoke_llm(prompt: str, temperature: float = 0.3) -> str:
         from langchain_core.messages import HumanMessage
         from langchain_ollama import ChatOllama
 
-        llm = ChatOllama(model=text_model, temperature=temperature)
+        llm = ChatOllama(model=text_model, temperature=temperature,
+                         num_predict=max_tokens)
         response = llm.invoke([HumanMessage(content=prompt)])
-        return response.content
+        return _strip_think_blocks(response.content)
