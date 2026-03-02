@@ -85,14 +85,16 @@ def _detect_data_flip_signals(state: dict, fraud_patterns: list[tuple[str, str]]
                 )
                 break  # one signal from description patterns is enough
 
-    # Odd pricing
+    # Dealer pricing: prices ending just below a round thousand
+    # e.g. $12,995, $14,999, $9,998 — NOT normal round amounts
+    # like $1,250, $2,500, $3,750 which are typical private-sale prices
     listed_price_val = state.get("listed_price")
     if listed_price_val and listed_price_val > 1000:
-        last_three = int(listed_price_val) % 1000
-        if last_three not in (0, 500, 900, 995, 999) and last_three % 100 != 0:
+        last_digits = int(listed_price_val) % 1000
+        if last_digits in (990, 995, 998, 999):
             signals.append(
-                f"DATA: Price ${listed_price_val:,.0f} ends in unusual amount "
-                f"— possible dealer pricing"
+                f"DATA: Price ${listed_price_val:,.0f} uses dealer-style "
+                f"pricing (ends in {last_digits})"
             )
 
     return signals
