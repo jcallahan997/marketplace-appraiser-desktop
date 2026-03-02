@@ -226,8 +226,26 @@ Otherwise output up to 10 signals, one per line, prefixed with "VISION: "."""
 
     signals = []
     for line in result.strip().splitlines():
-        line = line.strip()
+        line = line.strip().lstrip("-•* ")
         if not line or line.upper() == "NONE":
+            continue
+        # Skip lines that are reasoning about absence of indicators.
+        # The LLM sometimes outputs its analysis ("No dealer lot found")
+        # instead of the expected "NONE" when nothing was found.
+        content = line.lower()
+        if content.startswith("vision:"):
+            content = content[len("vision:"):].strip()
+        content = content.lstrip("-•* ")
+        if (
+            content.startswith("no ")
+            or content.startswith("not ")
+            or content.startswith("none ")
+            or any(phrase in content for phrase in (
+                "none found", "none detected", "no indicators",
+                "all photos show", "looking through", "reviewing",
+                "checking for", "after reviewing", "based on",
+            ))
+        ):
             continue
         if not line.upper().startswith("VISION:"):
             line = f"VISION: {line}"

@@ -237,9 +237,6 @@ into your recommendation.\
         flip_block = f"""
 FLIP/RESELLER RISK ASSESSMENT:
 {flip_risk_summary}
-This item is likely being flipped or sold by a professional reseller. \
-Flipped items often have hidden defects, deferred maintenance, and \
-inflated prices.
 
 CRITICAL FLIP RISK RULES:
 - If flip risk is HIGH: recommend PASS. The reason is BUYER PROTECTION — \
@@ -247,6 +244,9 @@ a deceptive seller means no warranty, hidden defects, and no recourse. \
 Calculate fair value normally from market data — do NOT apply arbitrary \
 percentage discounts. The PASS is because the transaction itself is risky.
 - If flip risk is MEDIUM: recommend NEGOTIATE with caution.
+- If flip risk is LOW: this is a MINOR concern only. It should NOT override \
+price and condition analysis. If the price is at or below fair market value \
+and seller reputation is good, you CAN recommend BUY.
 - Never recommend BUY when flip risk is MEDIUM or HIGH.\
 """
 
