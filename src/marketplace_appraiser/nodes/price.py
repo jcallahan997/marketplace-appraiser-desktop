@@ -7,67 +7,106 @@ from marketplace_appraiser.item_types import get_config
 from marketplace_appraiser.state import AppraisalState
 from marketplace_appraiser.utils.llm import invoke_llm
 from marketplace_appraiser.utils.safety_apis import check_safety
+from marketplace_appraiser.utils.search import safe_search
 
 
 # ---------------------------------------------------------------------------
 # Seller ethnicity inference (informational only)
 # ---------------------------------------------------------------------------
 
-def _infer_seller_ethnicity(name: str) -> str:
-    """Use the LLM to infer likely ethnicity from the seller's name.
+def _infer_seller_ethnicity(name: str) -> tuple[str, str]:
+    """Infer likely ethnicity from the seller's name using web search + LLM.
+
+    Returns (background_label, reasoning) where:
+    - background_label is a short 3-10 word label (e.g. "Polish or Polish-American")
+    - reasoning is a 2-3 sentence explanation citing web research
 
     This is informational context for the buyer only — NOT used in the
     price assessment prompt or recommendations.
     """
     if not name:
-        return ""
+        return "", ""
+
+    # Split name into parts for targeted searches
+    parts = name.strip().split()
+    given_name = parts[0] if parts else ""
+    surname = parts[-1] if len(parts) > 1 else ""
+
+    # Web search for name origins
+    search_context = ""
+    if surname:
+        results = safe_search(f'"{surname}" surname origin ethnicity', max_results=3)
+        snippets = [r.get("body", "") for r in results if r.get("body")]
+        if snippets:
+            search_context += f"Surname research for \"{surname}\":\n"
+            search_context += "\n".join(f"- {s[:300]}" for s in snippets[:3])
+            search_context += "\n\n"
+
+    if given_name and given_name != surname:
+        results = safe_search(f'"{given_name}" name origin meaning', max_results=3)
+        snippets = [r.get("body", "") for r in results if r.get("body")]
+        if snippets:
+            search_context += f"Given name research for \"{given_name}\":\n"
+            search_context += "\n".join(f"- {s[:300]}" for s in snippets[:3])
+            search_context += "\n\n"
+
     prompt = f"""\
 Analyze the name "{name}" and infer the most likely specific ethnic, \
-cultural, or regional background. Use your knowledge of global naming \
-conventions to be as granular as possible.
+cultural, or regional background. Use the web research below AND your \
+knowledge of global naming conventions.
 
-Consider:
-- **Surname origin**: linguistic roots, regional patterns, historical \
-  migration. For example, "-ez" suffixes (Gonzalez, Rodriguez) are \
-  Spanish patronymic; "-ski/-ska" are Polish; "-ov/-ova" are Slavic; \
-  "-ian/-yan" are Armenian; "O'" prefix is Irish; "Mc/Mac" is Scottish/Irish; \
-  "-sen/-son" can be Scandinavian; "-ić" is South Slavic; "Al-/El-" is Arabic; \
-  "Van/Von" is Dutch/German; "-escu" is Romanian; "-nen" is Finnish; \
-  "-oğlu/-oglu" is Turkish; "-dze/-shvili" is Georgian.
-- **Given name origin**: cultural naming traditions, religious naming \
-  (e.g. Muhammad/Fatima = Muslim tradition; Hebrew names like Moshe, \
-  Yael = Jewish tradition; Hindu names like Priya, Arjun; Sikh names \
-  with Singh/Kaur; Buddhist names).
-- **Regional specificity**: distinguish between e.g. Mexican vs. \
-  Colombian vs. Argentine; Nigerian Yoruba vs. Igbo vs. Hausa; North \
-  Indian vs. South Indian vs. Bengali; Japanese vs. Korean vs. Chinese; \
-  Lebanese vs. Egyptian vs. Moroccan; Ashkenazi vs. Sephardic Jewish.
-- **Compound/hyphenated names**: analyze each part separately, note if \
-  it suggests mixed heritage.
-- **Common American names**: names like "Smith", "Johnson", "Williams" \
-  are common across white and Black Americans — say "American (common \
-  surname, could be white or Black)" rather than guessing.
+WEB RESEARCH ON THIS NAME:
+{search_context if search_context else "(no web results found)"}
 
-Output format — ONE line with:
-  BACKGROUND: <specific background, 3-10 words>
+Naming convention guidance:
+- **Surname patterns**: "-ez" = Spanish patronymic; "-ski/-ska" = Polish; \
+  "-ov/-ova" = Slavic; "-ian/-yan" = Armenian; "O'" = Irish; "Mc/Mac" = \
+  Scottish/Irish; "-sen/-son" = Scandinavian; "-ić" = South Slavic; \
+  "Al-/El-" = Arabic; "Van/Von" = Dutch/German; "-escu" = Romanian; \
+  "-nen" = Finnish; "-oğlu" = Turkish; "-dze/-shvili" = Georgian.
+- **Given names**: cultural/religious traditions (Muhammad/Fatima = Muslim; \
+  Moshe/Yael = Jewish; Priya/Arjun = Hindu; Singh/Kaur = Sikh).
+- **Regional specificity**: Mexican vs. Colombian; Yoruba vs. Igbo; \
+  North Indian vs. South Indian; Ashkenazi vs. Sephardic Jewish.
+- **Common American names**: "Smith", "Johnson", "Williams" are common \
+  across white and Black Americans — note the ambiguity.
 
-Be specific rather than vague. "West African (likely Nigerian Yoruba)" \
-is better than "African". "Mexican or Central American" is better than \
-"Hispanic". "Ashkenazi Jewish" is better than "Jewish". "South Indian \
-(likely Tamil or Telugu)" is better than "Indian".
+Output format — exactly two sections:
+BACKGROUND: <specific background, 3-10 words>
+REASONING: <2-3 sentences explaining your inference, citing the web \
+research findings where relevant>
 
-If genuinely ambiguous, say "Ambiguous — could be <option1> or <option2>"."""
+Be specific. "West African (likely Nigerian Yoruba)" > "African". \
+"Mexican or Central American" > "Hispanic". If ambiguous, say so."""
 
     try:
         result = invoke_llm(prompt, temperature=0.1)
-        # Extract just the background line
-        for line in result.strip().splitlines():
-            line = line.strip()
-            if line.upper().startswith("BACKGROUND:"):
-                return line[len("BACKGROUND:"):].strip()
-        return result.strip()
+
+        background = ""
+        reasoning = ""
+
+        # Parse BACKGROUND line
+        bg_match = re.search(
+            r"BACKGROUND:\s*(.+?)(?:\n|$)", result, re.IGNORECASE
+        )
+        if bg_match:
+            background = bg_match.group(1).strip()
+
+        # Parse REASONING section (everything after REASONING:)
+        reason_match = re.search(
+            r"REASONING:\s*(.+)", result, re.IGNORECASE | re.DOTALL
+        )
+        if reason_match:
+            reasoning = reason_match.group(1).strip()
+
+        # Fallback: if no structured output, use full result as background
+        if not background:
+            background = result.strip().split("\n")[0].strip()
+
+        return background, reasoning
+
     except Exception:
-        return ""
+        return "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -288,11 +327,14 @@ and seller reputation is good, you CAN recommend BUY.
 
     # --- Seller ethnicity (informational only — not used in prompt) ---
     seller_ethnicity = ""
+    seller_ethnicity_reasoning = ""
     if seller_name:
         print(f"  Inferring seller background: {seller_name}...")
-        seller_ethnicity = _infer_seller_ethnicity(seller_name)
+        seller_ethnicity, seller_ethnicity_reasoning = _infer_seller_ethnicity(seller_name)
         if seller_ethnicity:
             print(f"  Seller background: {seller_ethnicity}")
+        if seller_ethnicity_reasoning:
+            print(f"  Reasoning: {seller_ethnicity_reasoning[:200]}")
 
     # --- Safety checks ---
     print("  Running safety checks...")
@@ -370,6 +412,7 @@ Format your response clearly with labeled sections."""
     return {
         "price_assessment": result,
         "seller_ethnicity": seller_ethnicity,
+        "seller_ethnicity_reasoning": seller_ethnicity_reasoning,
         "safety_info": safety_info,
         "flip_signals": flip_signals,
         "flip_risk_level": flip_risk_level,

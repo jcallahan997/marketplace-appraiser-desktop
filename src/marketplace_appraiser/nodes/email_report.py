@@ -106,6 +106,7 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
     seller_joined = state.get("seller_joined", "")
     seller_listings = state.get("seller_listings", "")
     seller_ethnicity = state.get("seller_ethnicity", "")
+    seller_ethnicity_reasoning = state.get("seller_ethnicity_reasoning", "")
     listing_age_text = state.get("listing_age_text", "")
     listing_age_days = state.get("listing_age_days")
 
@@ -137,6 +138,13 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
             f'<tr><td style="padding: 2px 12px 2px 0; font-weight: bold;">'
             f'Seller</td><td>{" — ".join(seller_parts)}</td></tr>'
         )
+        # Add reasoning row below seller if available
+        if seller_ethnicity_reasoning:
+            seller_row += (
+                f'<tr><td></td><td style="color: #999; font-size: 12px; '
+                f'font-style: italic; padding: 0 0 4px 0;">'
+                f'{seller_ethnicity_reasoning}</td></tr>'
+            )
 
     condition_row = ""
     if condition_listed:
@@ -339,6 +347,8 @@ max-width: 700px; margin: 0 auto; padding: 16px; color: #222;">
         if seller_listings:
             parts.append(f"{seller_listings} listings")
         seller_text = f"\nSeller: {' — '.join(parts)}"
+        if seller_ethnicity_reasoning:
+            seller_text += f"\n  Background reasoning: {seller_ethnicity_reasoning}"
 
     condition_text = f"\nCondition: {condition_listed}" if condition_listed else ""
     listing_age_plain = ""

@@ -6,6 +6,7 @@ from marketplace_appraiser.item_types import ITEM_TYPE_REGISTRY, get_config
 from marketplace_appraiser.item_types._base import ItemTypeConfig
 from marketplace_appraiser.item_types.electronics import parse_electronics_title
 from marketplace_appraiser.item_types.furniture import parse_furniture_title
+from marketplace_appraiser.item_types.general import GENERAL_CONFIG, parse_general_title
 from marketplace_appraiser.item_types.vehicle import parse_vehicle_title
 
 
@@ -14,15 +15,17 @@ class TestRegistry:
         assert "vehicle" in ITEM_TYPE_REGISTRY
         assert "electronics" in ITEM_TYPE_REGISTRY
         assert "furniture" in ITEM_TYPE_REGISTRY
+        assert "general" in ITEM_TYPE_REGISTRY
 
     def test_get_config_valid(self):
         cfg = get_config("vehicle")
         assert isinstance(cfg, ItemTypeConfig)
         assert cfg.name == "vehicle"
 
-    def test_get_config_invalid(self):
-        with pytest.raises(KeyError, match="Unknown item type"):
-            get_config("spaceship")
+    def test_get_config_unknown_returns_general(self):
+        cfg = get_config("spaceship")
+        assert cfg is GENERAL_CONFIG
+        assert cfg.name == "general"
 
     def test_all_configs_have_required_fields(self):
         for name, cfg in ITEM_TYPE_REGISTRY.items():
@@ -108,6 +111,20 @@ class TestParseFurnitureTitle:
         assert result["furniture_type"] is None
 
 
+class TestParseGeneralTitle:
+    def test_passthrough(self):
+        result = parse_general_title("Fender Stratocaster Electric Guitar")
+        assert result["title"] == "Fender Stratocaster Electric Guitar"
+
+    def test_empty(self):
+        result = parse_general_title("")
+        assert result["title"] == ""
+
+    def test_whitespace_stripped(self):
+        result = parse_general_title("  Some Item  ")
+        assert result["title"] == "Some Item"
+
+
 class TestConfigProperties:
     def test_vehicle_has_safety_api(self):
         cfg = get_config("vehicle")
@@ -120,6 +137,10 @@ class TestConfigProperties:
     def test_furniture_has_safety_api(self):
         cfg = get_config("furniture")
         assert cfg.safety_api == "cpsc"
+
+    def test_general_no_safety_api(self):
+        cfg = get_config("general")
+        assert cfg.safety_api is None
 
     def test_all_have_parse_title(self):
         for name, cfg in ITEM_TYPE_REGISTRY.items():
