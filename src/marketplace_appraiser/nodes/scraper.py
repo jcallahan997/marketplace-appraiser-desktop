@@ -647,7 +647,7 @@ async def _extract_image_urls(page, scope) -> list[str]:
 # Main scraping logic
 # ---------------------------------------------------------------------------
 
-async def _scrape(url: str, item_type_override: str | None = None) -> dict:
+async def _scrape(url: str) -> dict:
     """Core async scraping logic — connects to Chrome via CDP."""
     cdp_url = os.getenv("CHROME_CDP_URL", "http://localhost:9222")
 
@@ -688,13 +688,10 @@ async def _scrape(url: str, item_type_override: str | None = None) -> dict:
             location = await _extract_location(page, scope)
             listing_age_text = await _extract_listing_age(page, scope)
 
-            # Detect item type (or use override)
-            if item_type_override:
-                item_type = item_type_override
-            else:
-                print("  Auto-detecting item type...")
-                item_type = detect_item_type(title, description)
-                print(f"  Detected item type: {item_type}")
+            # Always auto-detect item type from listing content
+            print("  Auto-detecting item type...")
+            item_type = detect_item_type(title, description)
+            print(f"  Detected item type: {item_type}")
 
             config = get_config(item_type)
 
@@ -793,14 +790,13 @@ async def _scrape(url: str, item_type_override: str | None = None) -> dict:
 def scrape_listing(state: AppraisalState) -> dict:
     """LangGraph node: scrape a Facebook Marketplace listing."""
     url = state["listing_url"]
-    item_type_override = state.get("item_type")
 
     print(f"\n{'='*60}")
     print("STEP 1: Scraping listing from Facebook Marketplace")
     print(f"URL: {url}")
     print(f"{'='*60}\n")
 
-    result = asyncio.run(_scrape(url, item_type_override))
+    result = asyncio.run(_scrape(url))
 
     print(f"  Title: {result.get('title', 'Unknown')}")
     print(f"  Item type: {result.get('item_type', 'Unknown')}")

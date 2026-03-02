@@ -180,20 +180,17 @@ def collect_human_feedback() -> dict:
 # Run a single listing through the appraiser
 # ---------------------------------------------------------------------------
 
-def run_appraisal(url: str, item_type: str = None, use_vehicle: bool = False) -> dict:
+def run_appraisal(url: str, use_vehicle: bool = False) -> dict:
     """Run one listing through the appraisal pipeline and return the full state."""
     start = time.time()
 
     if use_vehicle:
         from vehicle_appraiser.graph import build_graph
-        app = build_graph(send_email=False)
-        initial_state = {"listing_url": url}
     else:
         from marketplace_appraiser.graph import build_graph
-        app = build_graph(send_email=False)
-        initial_state = {"listing_url": url}
-        if item_type:
-            initial_state["item_type"] = item_type
+
+    app = build_graph(send_email=False)
+    initial_state = {"listing_url": url}
 
     result = app.invoke(initial_state)
     elapsed = time.time() - start
@@ -202,7 +199,6 @@ def run_appraisal(url: str, item_type: str = None, use_vehicle: bool = False) ->
     out = dict(result)
     out["_eval_meta"] = {
         "url": url,
-        "item_type_override": item_type,
         "engine": "vehicle" if use_vehicle else "marketplace",
         "elapsed_seconds": round(elapsed, 1),
         "timestamp": datetime.now().isoformat(),
@@ -237,7 +233,6 @@ def main():
     parser.add_argument("--rejudge", metavar="FILE", help="Re-judge a previous eval JSON")
     parser.add_argument("--human", action="store_true", help="Prompt for human scores after each listing")
     parser.add_argument("--vehicle", action="store_true", help="Use vehicle appraiser instead of marketplace")
-    parser.add_argument("--item-type", metavar="TYPE", help="Item type for marketplace appraiser")
     args = parser.parse_args()
 
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
@@ -272,12 +267,10 @@ def main():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                parts = line.split("\t")
-                url = parts[0].strip()
-                itype = parts[1].strip() if len(parts) > 1 else None
-                listings.append((url, itype))
+                url = line.split("\t")[0].strip()
+                listings.append(url)
     elif args.url:
-        listings.append((args.url, args.item_type))
+        listings.append(args.url)
     else:
         parser.print_help()
         sys.exit(1)
@@ -290,15 +283,13 @@ def main():
 
     # --- Run and evaluate ---
     results = []
-    for i, (url, itype) in enumerate(listings, 1):
+    for i, url in enumerate(listings, 1):
         print(f"{'='*60}")
         print(f"LISTING {i}/{len(listings)}: {url}")
-        if itype:
-            print(f"  Item type: {itype}")
         print(f"{'='*60}")
 
         try:
-            result = run_appraisal(url, item_type=itype, use_vehicle=args.vehicle)
+            result = run_appraisal(url, use_vehicle=args.vehicle)
 
             # Judge
             print(f"\n  Judging with {JUDGE_MODEL}...")

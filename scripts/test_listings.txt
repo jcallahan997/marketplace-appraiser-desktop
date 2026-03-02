@@ -1,14 +1,14 @@
 # Test listings for evaluation harness
-# Format: URL<tab>item_type (item_type optional, auto-detected if omitted)
+# Item type is always auto-detected from listing content
 
 # Vehicles
-https://www.facebook.com/marketplace/item/1370765041398325/	vehicle
-https://www.facebook.com/marketplace/item/1890965698209966/	vehicle
-https://www.facebook.com/marketplace/item/1470133304467335/	vehicle
+https://www.facebook.com/marketplace/item/1370765041398325/
+https://www.facebook.com/marketplace/item/1890965698209966/
+https://www.facebook.com/marketplace/item/1470133304467335/
 
 # Electronics
-https://www.facebook.com/marketplace/item/1792577761383275/	electronics
-https://www.facebook.com/marketplace/item/1245926090938324/	electronics
+https://www.facebook.com/marketplace/item/1792577761383275/
+https://www.facebook.com/marketplace/item/1245926090938324/
 
 # Furniture
-https://www.facebook.com/marketplace/item/779537461872167/	furniture
+https://www.facebook.com/marketplace/item/779537461872167/

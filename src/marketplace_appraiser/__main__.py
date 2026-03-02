@@ -1,7 +1,7 @@
 """CLI entry point for the agentic marketplace appraiser.
 
 Usage:
-    python -m marketplace_appraiser <facebook_marketplace_url> [--item-type TYPE] [--email [recipient]]
+    python -m marketplace_appraiser <facebook_marketplace_url> [--email [recipient]]
 """
 
 import argparse
@@ -15,22 +15,11 @@ from dotenv import load_dotenv
 def main():
     load_dotenv(override=True)
 
-    from marketplace_appraiser.item_types import ITEM_TYPE_REGISTRY
-
-    available_types = sorted(ITEM_TYPE_REGISTRY.keys())
-
     parser = argparse.ArgumentParser(
         description="Appraise a Facebook Marketplace listing.",
-        usage="python -m marketplace_appraiser <url> [--item-type TYPE] [--email [recipient]]",
+        usage="python -m marketplace_appraiser <url> [--email [recipient]]",
     )
     parser.add_argument("url", help="Facebook Marketplace listing URL")
-    parser.add_argument(
-        "--item-type",
-        choices=available_types,
-        default=None,
-        metavar="TYPE",
-        help=f"Item type ({', '.join(available_types)}). Auto-detected if omitted.",
-    )
     parser.add_argument(
         "--email",
         nargs="?",
@@ -49,7 +38,7 @@ def main():
         print("  2. Log into Facebook in that Chrome window")
         print("  3. Make sure Ollama is running (if using local models): ollama serve")
         print()
-        print(f"Supported item types: {', '.join(available_types)}")
+        print("Item type is auto-detected from the listing title.")
         sys.exit(1)
 
     args = parser.parse_args()
@@ -83,14 +72,12 @@ def main():
     if send_email:
         email_to = args.email or os.getenv("EMAIL_TO", "") or os.getenv("GMAIL_USER", "")
 
-    item_type_display = args.item_type or "auto-detect"
-
     print()
     print("=" * 60)
     print("  AGENTIC MARKETPLACE APPRAISER")
     print("=" * 60)
     print(f"  Listing URL:   {url}")
-    print(f"  Item Type:     {item_type_display}")
+    print(f"  Item Type:     auto-detect")
     print(f"  Vision Model:  {vision_model}")
     print(f"  Text Model:    {text_model}")
     print(f"  Chrome CDP:    {cdp_url}")
@@ -102,8 +89,6 @@ def main():
 
     app = build_graph(send_email=send_email)
     initial_state = {"listing_url": url}
-    if args.item_type:
-        initial_state["item_type"] = args.item_type
     if email_to:
         initial_state["email_to"] = email_to
 
