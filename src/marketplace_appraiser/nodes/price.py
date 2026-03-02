@@ -21,14 +21,50 @@ def _infer_seller_ethnicity(name: str) -> str:
     """
     if not name:
         return ""
-    prompt = (
-        f'Given the name "{name}", what is the most likely ethnic/cultural '
-        f"background? Respond with just the ethnicity/cultural background "
-        f"in 2-5 words. If the name is ambiguous, say \"Unclear\".\n"
-        f"Output ONLY the ethnicity, nothing else."
-    )
+    prompt = f"""\
+Analyze the name "{name}" and infer the most likely specific ethnic, \
+cultural, or regional background. Use your knowledge of global naming \
+conventions to be as granular as possible.
+
+Consider:
+- **Surname origin**: linguistic roots, regional patterns, historical \
+  migration. For example, "-ez" suffixes (Gonzalez, Rodriguez) are \
+  Spanish patronymic; "-ski/-ska" are Polish; "-ov/-ova" are Slavic; \
+  "-ian/-yan" are Armenian; "O'" prefix is Irish; "Mc/Mac" is Scottish/Irish; \
+  "-sen/-son" can be Scandinavian; "-ić" is South Slavic; "Al-/El-" is Arabic; \
+  "Van/Von" is Dutch/German; "-escu" is Romanian; "-nen" is Finnish; \
+  "-oğlu/-oglu" is Turkish; "-dze/-shvili" is Georgian.
+- **Given name origin**: cultural naming traditions, religious naming \
+  (e.g. Muhammad/Fatima = Muslim tradition; Hebrew names like Moshe, \
+  Yael = Jewish tradition; Hindu names like Priya, Arjun; Sikh names \
+  with Singh/Kaur; Buddhist names).
+- **Regional specificity**: distinguish between e.g. Mexican vs. \
+  Colombian vs. Argentine; Nigerian Yoruba vs. Igbo vs. Hausa; North \
+  Indian vs. South Indian vs. Bengali; Japanese vs. Korean vs. Chinese; \
+  Lebanese vs. Egyptian vs. Moroccan; Ashkenazi vs. Sephardic Jewish.
+- **Compound/hyphenated names**: analyze each part separately, note if \
+  it suggests mixed heritage.
+- **Common American names**: names like "Smith", "Johnson", "Williams" \
+  are common across white and Black Americans — say "American (common \
+  surname, could be white or Black)" rather than guessing.
+
+Output format — ONE line with:
+  BACKGROUND: <specific background, 3-10 words>
+
+Be specific rather than vague. "West African (likely Nigerian Yoruba)" \
+is better than "African". "Mexican or Central American" is better than \
+"Hispanic". "Ashkenazi Jewish" is better than "Jewish". "South Indian \
+(likely Tamil or Telugu)" is better than "Indian".
+
+If genuinely ambiguous, say "Ambiguous — could be <option1> or <option2>"."""
+
     try:
         result = invoke_llm(prompt, temperature=0.1)
+        # Extract just the background line
+        for line in result.strip().splitlines():
+            line = line.strip()
+            if line.upper().startswith("BACKGROUND:"):
+                return line[len("BACKGROUND:"):].strip()
         return result.strip()
     except Exception:
         return ""
