@@ -11,7 +11,7 @@ from pathlib import Path
 import markdown
 
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm_light
 
 
 def _shorten_analysis(text: str, max_sentences: int = 2) -> str:
@@ -80,7 +80,7 @@ Example: [NEGOTIATE] 2015 Toyota Camry — $12,000 (Fair value: $9,500)
 
 Output ONLY the subject line, nothing else. No quotes, no prefix."""
 
-    subject_raw = invoke_llm(prompt)
+    subject_raw = invoke_llm_light(prompt)
     subject = subject_raw.strip().split("\n")[0].strip()
 
     for prefix in ("Subject:", "Subject Line:", "**Subject:**", "**Subject Line:**"):

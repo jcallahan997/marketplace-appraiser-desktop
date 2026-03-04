@@ -1,14 +1,26 @@
 # Test listings for evaluation harness
 # Item type is always auto-detected from listing content
 
-# Vehicles
-https://www.facebook.com/marketplace/item/1370765041398325/
-https://www.facebook.com/marketplace/item/1890965698209966/
-https://www.facebook.com/marketplace/item/1470133304467335/
+# Vehicles — nice car (Porsche Taycan, $84.9K, 8.9K mi)
+https://www.facebook.com/marketplace/item/923674850043663/
 
-# Electronics
-https://www.facebook.com/marketplace/item/1792577761383275/
-https://www.facebook.com/marketplace/item/1245926090938324/
+# Vehicles — mid-range car, price reduced (BMW 528i, $7.2K, 70K mi)
+https://www.facebook.com/marketplace/item/3892400301052525/
 
-# Furniture
-https://www.facebook.com/marketplace/item/779537461872167/
+# Vehicles — budget car, high miles (VW Jetta, $2K, 181K mi)
+https://www.facebook.com/marketplace/item/1406829850702629/
+
+# Vehicles — fixer upper (Infiniti G35, $1.5K, 150K mi)
+https://www.facebook.com/marketplace/item/3541936355954540/
+
+# Housing — apartment rental (1BR/1BA, $2K) → should detect as "general"
+https://www.facebook.com/marketplace/item/1893358774823200/
+
+# Furniture — sectional couch ($250)
+https://www.facebook.com/marketplace/item/1209716657998651/
+
+# General — drum set ($300) → should detect as "general"
+https://www.facebook.com/marketplace/item/927945169884050/
+
+# General — mixer grinder ($20) → could detect as "electronics" or "general"
+https://www.facebook.com/marketplace/item/882582831414734/

@@ -15,10 +15,18 @@ def _strip_think_blocks(text: str) -> str:
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
-def _detect_provider() -> tuple[bool, str]:
-    """Return (use_claude, model_name) based on env vars."""
+def _detect_provider(light: bool = False) -> tuple[bool, str]:
+    """Return (use_claude, model_name) based on env vars.
+
+    When *light* is True, prefer the cheaper LIGHT_MODEL (default Haiku)
+    for simple classification / extraction tasks.
+    """
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     text_model = os.getenv("TEXT_MODEL", "")
+    light_model = os.getenv("LIGHT_MODEL", "claude-haiku-4-5-20251001")
+
+    if light and anthropic_key:
+        return True, light_model
 
     if text_model:
         use_claude = text_model.startswith("claude")
@@ -75,6 +83,49 @@ def invoke_llm(prompt: str, temperature: float = 0.3, max_tokens: int = 4096) ->
         from langchain_ollama import ChatOllama
 
         llm = ChatOllama(model=text_model, temperature=temperature,
+                         num_predict=max_tokens)
+        response = llm.invoke([HumanMessage(content=prompt)])
+        return _strip_think_blocks(response.content)
+
+
+def invoke_llm_light(prompt: str, temperature: float = 0.2,
+                     max_tokens: int = 1024) -> str:
+    """Lightweight LLM call using Haiku (or LIGHT_MODEL env var).
+
+    Use for simple classification, extraction, and formatting tasks
+    where Sonnet-level reasoning is overkill.
+    """
+    use_claude, model = _detect_provider(light=True)
+
+    provider = "Claude API" if use_claude else "Ollama"
+    print(f"  LLM-light: {model} ({provider})")
+
+    if use_claude:
+        import anthropic
+
+        client = anthropic.Anthropic()
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return response.content[0].text
+            except (anthropic.OverloadedError, anthropic.InternalServerError,
+                    anthropic.RateLimitError) as e:
+                if attempt == MAX_RETRIES:
+                    raise
+                wait = INITIAL_BACKOFF * (2 ** (attempt - 1))
+                print(f"  Retry {attempt}/{MAX_RETRIES} after {type(e).__name__} "
+                      f"— waiting {wait}s...")
+                time.sleep(wait)
+    else:
+        from langchain_core.messages import HumanMessage
+        from langchain_ollama import ChatOllama
+
+        llm = ChatOllama(model=model, temperature=temperature,
                          num_predict=max_tokens)
         response = llm.invoke([HumanMessage(content=prompt)])
         return _strip_think_blocks(response.content)

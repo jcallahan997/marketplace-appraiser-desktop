@@ -170,7 +170,7 @@ def _extract_flip_signals_from_vision(
     analyses: list[str], item_name: str, item_type: str = "vehicle"
 ) -> list[str]:
     """Scan all image analyses for flip/dealer indicators."""
-    from marketplace_appraiser.utils.llm import invoke_llm
+    from marketplace_appraiser.utils.llm import invoke_llm_light
 
     combined = "\n".join(f"Photo {i+1}: {a}" for i, a in enumerate(analyses))
 
@@ -219,7 +219,7 @@ PHOTO ANALYSES:
 If no flip/dealer indicators are found, output exactly: NONE
 Otherwise output up to 10 signals, one per line, prefixed with "VISION: "."""
 
-    result = invoke_llm(prompt, temperature=0.1, max_tokens=512)
+    result = invoke_llm_light(prompt, temperature=0.1, max_tokens=512)
 
     if not result or result.strip().upper() == "NONE":
         return []

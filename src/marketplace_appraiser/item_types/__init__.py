@@ -30,7 +30,7 @@ def detect_item_type(title: str, description: str = "") -> str:
     Falls back to "general" if classification fails or the item doesn't
     fit any specific category.
     """
-    from marketplace_appraiser.utils.llm import invoke_llm
+    from marketplace_appraiser.utils.llm import invoke_llm_light
 
     # Specific categories (excluding "general" — it's the catch-all)
     specific = ", ".join(sorted(k for k in ITEM_TYPE_REGISTRY if k != "general"))
@@ -48,7 +48,7 @@ toys, collectibles, bicycles, appliances, etc.).
 Output ONLY the category name, nothing else."""
 
     try:
-        result = invoke_llm(prompt, temperature=0.1).strip().lower()
+        result = invoke_llm_light(prompt, temperature=0.1).strip().lower()
         # Clean up any extra text the LLM might add
         for item_type in ITEM_TYPE_REGISTRY:
             if item_type in result:

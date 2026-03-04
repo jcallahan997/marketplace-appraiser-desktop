@@ -5,7 +5,7 @@ import mimetypes
 import os
 import time
 
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light
 from marketplace_appraiser.utils.search import safe_search
 
 
@@ -214,7 +214,7 @@ Each query should include "{item_name}" for context where relevant. \
 If everything is straightforward and nothing needs research, output exactly: \
 NONE"""
 
-    raw = invoke_llm(prompt, temperature=0.2)
+    raw = invoke_llm_light(prompt, temperature=0.2)
     lines = [line.strip() for line in raw.strip().splitlines() if line.strip()]
 
     if len(lines) == 1 and lines[0].upper() == "NONE":

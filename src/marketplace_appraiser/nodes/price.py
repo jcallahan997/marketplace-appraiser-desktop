@@ -185,9 +185,9 @@ def _assess_flip_risk(signals: list[str]) -> tuple[str, str]:
     web_count = sum(1 for s in signals if s.startswith("WEB:"))
     total = len(signals)
 
-    if total >= 4 or (vision_count >= 2 and data_count >= 1):
+    if total >= 5 or (vision_count >= 3 and data_count >= 2):
         level = "HIGH"
-    elif total >= 2 or web_count >= 1:
+    elif total >= 3 or (web_count >= 2):
         level = "MEDIUM"
     elif total >= 1:
         level = "LOW"
@@ -313,16 +313,18 @@ into your recommendation.\
 FLIP/RESELLER RISK ASSESSMENT:
 {flip_risk_summary}
 
-CRITICAL FLIP RISK RULES:
-- If flip risk is HIGH: recommend PASS. The reason is BUYER PROTECTION — \
-a deceptive seller means no warranty, hidden defects, and no recourse. \
-Calculate fair value normally from market data — do NOT apply arbitrary \
-percentage discounts. The PASS is because the transaction itself is risky.
-- If flip risk is MEDIUM: recommend NEGOTIATE with caution.
+FLIP RISK GUIDANCE:
+- If flip risk is HIGH: default to NEGOTIATE with caution. Only recommend \
+PASS if there are ALSO other serious red flags (very low seller trust, \
+missing key info, suspicious pricing). A legitimate dealer listing with \
+transparent disclosure is NOT a reason to PASS.
+- If flip risk is MEDIUM: note it as a caution but let price/condition \
+analysis drive the recommendation. NEGOTIATE is often appropriate.
 - If flip risk is LOW: this is a MINOR concern only. It should NOT override \
 price and condition analysis. If the price is at or below fair market value \
 and seller reputation is good, you CAN recommend BUY.
-- Never recommend BUY when flip risk is MEDIUM or HIGH.\
+- A listing from a disclosed dealer or business is NOT inherently deceptive. \
+Judge it on price and condition like any other listing.\
 """
 
     # --- Seller ethnicity (informational only — not used in prompt) ---
@@ -380,14 +382,18 @@ MARKET RESEARCH:
 {market_analysis}
 
 IMPORTANT DECISION RULES:
-- HIGH flip risk → default to PASS (override only if price is 30%+ below market)
-- Seller rating below 4.0/5 → strong bias toward PASS
-- Unrated/unverifiable seller + flip indicators → PASS
+- HIGH flip risk → default to NEGOTIATE (only PASS if combined with very \
+low seller trust or other serious red flags)
+- Seller rating below 4.0/5 → bias toward NEGOTIATE, not automatic PASS
+- Unrated/unverifiable seller alone is NOT a reason to PASS — most FB \
+Marketplace sellers are unrated
 - For vehicles: brand reliability problems (e.g. Range Rover, Jaguar, \
 high-mileage German luxury) → factor in expected repair costs
 - Vision-derived readings from photos (odometers, serial numbers) are \
 UNRELIABLE — note as approximate, do NOT flag as confirmed discrepancies
-- Multiple red flags compound: 2+ serious concerns → recommend PASS
+- Multiple red flags compound: 3+ serious concerns → recommend PASS
+- Price significantly below market (30%+) → strong signal for BUY unless \
+there are concrete red flags (not just theoretical risks)
 
 Based on ALL available information, determine:
 
@@ -395,13 +401,12 @@ Based on ALL available information, determine:
 2. A condition-adjusted fair value (a single dollar amount)
 3. Your recommendation: BUY (low risk, fair price), NEGOTIATE (moderate \
 risk, worth pursuing at lower price), or PASS (too many risk factors, \
-untrustworthy seller, or far above market — err on the side of PASS)
+untrustworthy seller, or far above market)
 4. If NEGOTIATE: provide a specific target price and rationale
 5. Confidence level: HIGH, MEDIUM, or LOW
 6. Seller trust assessment — weight seller reputation HEAVILY. An \
 unverifiable or suspicious seller is a major risk even if the item looks good.
-7. Flip/reseller risk assessment if any indicators were found. HIGH flip \
-risk should almost always result in PASS.
+7. Flip/reseller risk assessment if any indicators were found.
 8. Listing age impact on negotiation strategy (if applicable)
 9. A 3-4 sentence summary paragraph for the buyer
 
