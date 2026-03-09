@@ -149,8 +149,17 @@ def check_safety(
         if not (make and model and year):
             return ""
 
+        try:
+            year_int = int(year)
+        except (TypeError, ValueError):
+            return ""
+
+        if year_int < 1966:
+            print(f"  Skipping NHTSA — not available for pre-1966 vehicles ({year})")
+            return ""
+
         print(f"  Checking NHTSA recalls for {year} {make} {model}...")
-        result = check_vehicle_recalls(str(make), str(model), int(year))
+        result = check_vehicle_recalls(str(make), str(model), year_int)
         if result["count"] > 0:
             print(f"  Found {result['count']} recall(s)")
             lines = [f"NHTSA SAFETY RECALLS ({result['count']} found):"]

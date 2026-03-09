@@ -460,15 +460,64 @@ async def _extract_seller_info(page, scope) -> dict:
         }
 
         // --- Listings count ---
-        const listingsMatch = text.match(
-            /(?:Seller|profile)[\s\S]{0,200}?(\d+)\s+(?:listing|item|product)s?/i
+        // Only extract from tight, authoritative text patterns.
+        // Never count link elements — FB injects recommendations everywhere.
+        // Use a narrow 200-char window after "Seller information" and
+        // exclude "Browse N listings" which is FB recommendation UI.
+        const sellerSection = text.match(
+            /Seller information[\s\S]{0,200}/i
         );
-        if (listingsMatch) info.listings = listingsMatch[1];
-        if (!info.listings) {
-            const altMatch = text.match(
-                /Seller information[\s\S]{0,300}?(\d+)\s+listings?/i
+        if (sellerSection) {
+            // Priority 1: "N listings for sale/available" (most reliable)
+            const strict = sellerSection[0].match(
+                /(?<!Browse\s)(\d+)\s+listings?\s+(?:for\s+sale|available)/i
             );
-            if (altMatch) info.listings = altMatch[1];
+            if (strict) {
+                info.listings = strict[1];
+                info.listings_source = 'seller_info_strict';
+                info.listings_context = sellerSection[0].slice(0, 120);
+            } else {
+                // Priority 2: "N active listings" (common FB format)
+                const active = sellerSection[0].match(
+                    /(?<!Browse\s)(\d+)\s+active\s+listings?/i
+                );
+                if (active) {
+                    info.listings = active[1];
+                    info.listings_source = 'seller_info_active';
+                    info.listings_context = sellerSection[0].slice(0, 120);
+                } else {
+                    // Priority 3: standalone "N listing(s)"
+                    const broad = sellerSection[0].match(
+                        /(?<!Browse\s)(\d+)\s+listing/i
+                    );
+                    if (broad) {
+                        info.listings = broad[1];
+                        info.listings_source = 'seller_info_broad';
+                        info.listings_context = sellerSection[0].slice(0, 120);
+                    }
+                }
+            }
+        }
+        if (!info.listings) {
+            // Fallback: search full page for authoritative patterns
+            const forSale = text.match(
+                /(?<!Browse\s)(\d+)\s+listings?\s+(?:for\s+sale|available)/i
+            );
+            if (forSale) {
+                info.listings = forSale[1];
+                info.listings_source = 'for_sale_text';
+                info.listings_context = forSale[0];
+            }
+            if (!info.listings) {
+                const active = text.match(
+                    /(?<!Browse\s)(\d+)\s+active\s+listings?/i
+                );
+                if (active) {
+                    info.listings = active[1];
+                    info.listings_source = 'active_text';
+                    info.listings_context = active[0];
+                }
+            }
         }
 
         // --- Seller name + profile URL ---
@@ -542,6 +591,12 @@ async def _extract_seller_info(page, scope) -> dict:
             print(f"    name={result['name']}")
         if result.get("rating"):
             print(f"    rating={result['rating']}")
+        if result.get("listings"):
+            src = result.get("listings_source", "unknown")
+            ctx = result.get("listings_context", "")
+            print(f"    listings={result['listings']} (source: {src})")
+            if ctx:
+                print(f"    matched text: \"{ctx[:80].strip()}\"")
     if missing_fields:
         print(f"  Seller info MISSING: {', '.join(missing_fields)}")
     if not found_fields:

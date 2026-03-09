@@ -25,6 +25,70 @@ def _shorten_analysis(text: str, max_sentences: int = 2) -> str:
     return short
 
 
+def _collapsible_html(title: str, content_html: str) -> str:
+    """Wrap content in a collapsible <details> block for email brevity."""
+    return (
+        f'<details style="margin-top: 8px;">'
+        f'<summary style="cursor: pointer; color: #008080; font-weight: bold;">'
+        f'{title}</summary>'
+        f'<div style="padding: 8px 0;">{content_html}</div>'
+        f'</details>'
+    )
+
+
+def _truncate_seller_investigation(text: str) -> str:
+    """Keep only key sections of seller investigation for email brevity."""
+    if not text:
+        return ""
+    # Keep: Seller Type, Account & Activity, Risk Assessment, Key Findings
+    # Drop: Categories Sold, Reputation Signals, Location Consistency
+    keep = {"seller type", "account & activity", "account and activity",
+            "risk assessment", "key findings"}
+    drop = {"categories sold", "reputation signals", "location consistency",
+            "professional background"}
+
+    lines = text.split("\n")
+    result = []
+    include = True
+    for line in lines:
+        stripped = line.strip().lstrip("#").strip().lower()
+        if stripped in keep:
+            include = True
+        elif stripped in drop:
+            include = False
+            continue
+        if include:
+            result.append(line)
+    return "\n".join(result).strip()
+
+
+def _condense_section(text: str, section_name: str, max_words: int = 80) -> str:
+    """Use Haiku to condense a long section into a brief summary."""
+    if not text or len(text.split()) <= max_words:
+        return text
+    prompt = f"""\
+Condense this {section_name} into {max_words} words or fewer. \
+Keep the most important facts. Use bullet points. No preamble.
+
+{text[:2000]}"""
+    try:
+        result = invoke_llm_light(prompt, max_tokens=512)
+        return result.strip()
+    except Exception:
+        # Fallback: just truncate
+        words = text.split()[:max_words]
+        return " ".join(words) + "..."
+
+
+def _extract_section(text: str, section_name: str) -> str:
+    """Extract a ## Section from markdown text, returning its body."""
+    if not text:
+        return ""
+    pattern = rf"##\s*{re.escape(section_name)}\s*\n(.*?)(?=\n##\s|\Z)"
+    m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    return m.group(1).strip() if m else ""
+
+
 def email_report(state: AppraisalState) -> dict:
     """LangGraph node: build the appraisal as an HTML email and send it."""
     email_to = state.get("email_to") or os.getenv("EMAIL_TO", "")
@@ -54,9 +118,18 @@ def email_report(state: AppraisalState) -> dict:
     # --- Extract state fields ---
     item_name = state.get("item_name", "Unknown Item")
     item_type = state.get("item_type", "vehicle")
-    listed_price = state.get("listed_price", "N/A")
+    listed_price_raw = state.get("listed_price", "N/A")
     location = state.get("location", "N/A")
     listing_url = state.get("listing_url", "")
+
+    # Format price cleanly — avoid "$123.0", prefer "$123" or "$1,234"
+    if isinstance(listed_price_raw, (int, float)):
+        if listed_price_raw == int(listed_price_raw):
+            listed_price = f"{int(listed_price_raw):,}"
+        else:
+            listed_price = f"{listed_price_raw:,.2f}"
+    else:
+        listed_price = str(listed_price_raw).rstrip("0").rstrip(".")
     price_assessment = state.get("price_assessment", "")
     condition_report = state.get("condition_report", "")
     image_analyses = state.get("image_analyses", [])
@@ -199,11 +272,12 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
         risk_colors = {"LOW": "#27ae60", "MEDIUM": "#f39c12", "HIGH": "#c0392b"}
         risk_color = risk_colors.get(seller_risk_level, "#333")
 
+        seller_brief = _truncate_seller_investigation(seller_investigation)
         seller_rendered = markdown.markdown(
-            seller_investigation, extensions=["tables", "fenced_code"]
+            seller_brief, extensions=["tables", "fenced_code"]
         )
 
-        # Active listings from profile
+        # Active listings from profile — collapsible
         active_listings = state.get("seller_active_listings", [])
         listings_html = ""
         if active_listings:
@@ -212,9 +286,9 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
                 title = lst.get("title", "Unknown")
                 price = lst.get("price", "")
                 listings_items.append(f"<li>{title} — {price}</li>")
-            listings_html = (
-                '<h3 style="color: #666; margin-top: 16px;">Other Active Listings</h3>'
-                f'<ul style="font-size: 14px;">{"".join(listings_items)}</ul>'
+            inner = f'<ul style="font-size: 14px;">{"".join(listings_items)}</ul>'
+            listings_html = _collapsible_html(
+                f"Other Active Listings ({len(active_listings)})", inner
             )
 
         seller_profile_html = f"""\
@@ -227,6 +301,41 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
 </h2>
 {seller_rendered}
 {listings_html}"""
+
+    # Seller Bio & Background — collapsible section from profile data + LinkedIn
+    seller_profile = state.get("seller_profile", {}) or {}
+    seller_bio_parts = []
+    bio_text = seller_profile.get("bio", "")
+    if bio_text:
+        bio_escaped = (
+            bio_text.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("\n", "<br>")
+        )
+        seller_bio_parts.append(
+            f'<p style="font-size: 14px;"><strong>Bio:</strong> {bio_escaped}</p>'
+        )
+    biz_name = seller_profile.get("business_name", "")
+    biz_info = seller_profile.get("business_info", "")
+    if biz_name:
+        seller_bio_parts.append(
+            f'<p style="font-size: 14px;"><strong>Business:</strong> {biz_name}'
+            + (f" — {biz_info}" if biz_info else "")
+            + "</p>"
+        )
+    prof_bg = _extract_section(seller_investigation, "Professional Background")
+    if prof_bg and prof_bg.lower() != "no professional profile found.":
+        prof_rendered = markdown.markdown(prof_bg, extensions=["tables"])
+        seller_bio_parts.append(
+            f'<div style="font-size: 14px;"><strong>Professional Background:</strong>'
+            f'{prof_rendered}</div>'
+        )
+    seller_bio_html = ""
+    if seller_bio_parts:
+        inner = "\n".join(seller_bio_parts)
+        seller_bio_html = (
+            '<hr style="border: 1px solid #ddd;">'
+            + _collapsible_html("Seller Bio &amp; Background", inner)
+        )
 
     # Flip risk section
     flip_risk_level = state.get("flip_risk_level", "NONE")
@@ -257,16 +366,18 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
 <h2 style="color: #c0392b;">Safety Recalls</h2>
 {safety_rendered}"""
 
-    # Photos
+    # Photos — limit to first 3 for brevity
+    max_photos = 3
     photos_html = ""
-    if image_paths:
+    email_image_paths = image_paths[:max_photos]
+    if email_image_paths:
         photos_html = '\n<hr style="border: 1px solid #ddd;">\n'
         photos_html += '<h2 style="color: #008080;">Listing Photos</h2>\n'
-        for i, img_path in enumerate(image_paths):
+        for i, img_path in enumerate(email_image_paths):
             cid = f"listing_photo_{i}"
             caption = ""
             if i < len(image_analyses):
-                caption = _shorten_analysis(image_analyses[i])
+                caption = _shorten_analysis(image_analyses[i], max_sentences=1)
             photos_html += (
                 f'<div style="margin-bottom: 24px;">'
                 f'<h3 style="color: #444; margin-bottom: 6px;">Photo {i + 1}</h3>'
@@ -279,44 +390,51 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
                     f'margin: 8px 0 0 0; line-height: 1.4;">{caption}</p>'
                 )
             photos_html += '</div>\n'
+        if len(image_paths) > max_photos:
+            photos_html += (
+                f'<p style="color: #888; font-size: 13px;">'
+                f'{len(image_paths) - max_photos} more photo(s) in listing</p>\n'
+            )
 
-    # Condition summary
+    # Condensed collapsible sections — condition, research, description
+    # Condense once and reuse for both HTML and plain text to avoid
+    # duplicate Haiku calls.
+    condensed_condition = ""
     condition_html = ""
     if condition_report:
-        rendered = markdown.markdown(
-            condition_report, extensions=["tables", "fenced_code"]
+        condensed_condition = _condense_section(condition_report, "condition report")
+        print(f"  Condition (condensed): {condensed_condition[:120]}...")
+        rendered = markdown.markdown(condensed_condition, extensions=["tables"])
+        condition_html = (
+            '<hr style="border: 1px solid #ddd;">'
+            + _collapsible_html("Condition Summary", rendered)
         )
-        condition_html = f"""\
-<hr style="border: 1px solid #ddd;">
-<h2 style="color: #008080;">Condition Summary</h2>
-{rendered}"""
 
-    # Research findings
     description_research = state.get("description_research", "")
+    condensed_research = ""
     research_html = ""
     if description_research:
-        research_rendered = markdown.markdown(
-            description_research, extensions=["tables", "fenced_code"]
+        condensed_research = _condense_section(description_research, "research findings")
+        print(f"  Research (condensed): {condensed_research[:120]}...")
+        rendered = markdown.markdown(condensed_research, extensions=["tables"])
+        research_html = (
+            '<hr style="border: 1px solid #ddd;">'
+            + _collapsible_html("Research Findings", rendered)
         )
-        research_html = f"""\
-<hr style="border: 1px solid #ddd;">
-<h2 style="color: #008080;">Research Findings</h2>
-{research_rendered}"""
 
-    # Seller's description
     description_html = ""
     if description:
         desc_escaped = (
-            description
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
+            description.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("\n", "<br>")
         )
-        description_html = f"""\
-<hr style="border: 1px solid #ddd;">
-<h2 style="color: #008080;">Seller's Description</h2>
-<p style="color: #444; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">{desc_escaped}</p>"""
+        description_html = (
+            '<hr style="border: 1px solid #ddd;">'
+            + _collapsible_html(
+                "Seller's Description",
+                f'<p style="font-size: 14px;">{desc_escaped}</p>'
+            )
+        )
 
     html_body = f"""\
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; \
@@ -324,6 +442,7 @@ max-width: 700px; margin: 0 auto; padding: 16px; color: #222;">
 {header_html}
 {assessment_section}
 {seller_profile_html}
+{seller_bio_html}
 {flip_html}
 {safety_html}
 {photos_html}
@@ -371,27 +490,41 @@ Listing: {listing_url}
     if seller_investigation:
         plain_body += f"--- SELLER PROFILE ({seller_risk_level} RISK) ---\n\n{seller_investigation}\n\n"
 
+    # Plain text seller bio
+    bio_plain_parts = []
+    if bio_text:
+        bio_plain_parts.append(f"Bio: {bio_text}")
+    if biz_name:
+        bio_plain_parts.append(f"Business: {biz_name}" + (f" — {biz_info}" if biz_info else ""))
+    if prof_bg and prof_bg.lower() != "no professional profile found.":
+        bio_plain_parts.append(f"Professional Background:\n{prof_bg}")
+    if bio_plain_parts:
+        plain_body += "--- SELLER BIO & BACKGROUND ---\n\n" + "\n\n".join(bio_plain_parts) + "\n\n"
+
     if flip_risk_level and flip_risk_level != "NONE":
         plain_body += f"--- FLIP RISK: {flip_risk_level} ---\n\n{flip_risk_summary}\n\n"
 
     if safety_info:
         plain_body += f"--- SAFETY RECALLS ---\n\n{safety_info}\n\n"
 
-    plain_body += "--- LISTING PHOTOS ---\n\n"
-    for i in range(len(image_paths)):
-        caption = ""
-        if i < len(image_analyses):
-            caption = _shorten_analysis(image_analyses[i])
-        plain_body += f"Photo {i + 1}: {caption}\n\n"
+    if email_image_paths:
+        plain_body += "--- LISTING PHOTOS ---\n\n"
+        for i in range(len(email_image_paths)):
+            caption = ""
+            if i < len(image_analyses):
+                caption = _shorten_analysis(image_analyses[i], max_sentences=1)
+            plain_body += f"Photo {i + 1}: {caption}\n\n"
+        if len(image_paths) > max_photos:
+            plain_body += f"({len(image_paths) - max_photos} more photo(s) in listing)\n\n"
 
-    if condition_report:
-        plain_body += f"--- CONDITION SUMMARY ---\n\n{condition_report}\n"
+    if condensed_condition:
+        plain_body += f"--- CONDITION SUMMARY ---\n\n{condensed_condition}\n\n"
 
-    if description_research:
-        plain_body += f"\n--- RESEARCH FINDINGS ---\n\n{description_research}\n"
+    if condensed_research:
+        plain_body += f"--- RESEARCH FINDINGS ---\n\n{condensed_research}\n\n"
 
     if description:
-        plain_body += f"\n--- SELLER'S DESCRIPTION ---\n\n{description}\n"
+        plain_body += f"--- SELLER'S DESCRIPTION ---\n\n{description}\n\n"
 
     print(f"  Sending to {email_to}...")
 
@@ -406,7 +539,7 @@ Listing: {listing_url}
         msg_alt.attach(MIMEText(html_body, "html"))
         msg.attach(msg_alt)
 
-        for i, img_path in enumerate(image_paths):
+        for i, img_path in enumerate(email_image_paths):
             cid = f"listing_photo_{i}"
             img_data = img_path.read_bytes()
             suffix = img_path.suffix.lower().lstrip(".")
@@ -415,8 +548,8 @@ Listing: {listing_url}
             img_part.add_header("Content-ID", f"<{cid}>")
             img_part.add_header("Content-Disposition", "inline", filename=img_path.name)
             msg.attach(img_part)
-        if image_paths:
-            print(f"  Embedded {len(image_paths)} listing photo(s)")
+        if email_image_paths:
+            print(f"  Embedded {len(email_image_paths)} of {len(image_paths)} photo(s)")
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(gmail_user, gmail_app_password)

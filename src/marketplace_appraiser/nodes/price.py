@@ -5,7 +5,7 @@ from datetime import datetime
 
 from marketplace_appraiser.item_types import get_config
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light, invoke_llm_premium
 from marketplace_appraiser.utils.safety_apis import check_safety
 from marketplace_appraiser.utils.search import safe_search
 
@@ -80,7 +80,7 @@ Be specific. "West African (likely Nigerian Yoruba)" > "African". \
 "Mexican or Central American" > "Hispanic". If ambiguous, say so."""
 
     try:
-        result = invoke_llm(prompt, temperature=0.1)
+        result = invoke_llm_light(prompt, temperature=0.1)
 
         background = ""
         reasoning = ""
@@ -225,6 +225,12 @@ def assess_price(state: AppraisalState) -> dict:
     seller_rating = state.get("seller_rating", "")
     seller_joined = state.get("seller_joined", "")
     seller_listings = state.get("seller_listings", "")
+
+    # Item-type-specific details line
+    item_details_str = ""
+    if item_type == "vehicle":
+        mileage = item_fields.get("mileage")
+        item_details_str = f"\n- Mileage: {mileage:,} miles" if mileage else ""
 
     # --- Seller summary line ---
     seller_line = ""
@@ -372,7 +378,7 @@ this listing.
 ITEM DETAILS:
 - Item: {item_name}
 - Listed Price: ${listed_price}
-- Location: {location}{seller_line}
+- Location: {location}{item_details_str}{seller_line}
 {seller_warning}{account_warning}{listing_age_warning}{flip_block}\
 {safety_block}{seller_context}{description_block}{research_block}
 CONDITION REPORT:
@@ -412,7 +418,7 @@ unverifiable or suspicious seller is a major risk even if the item looks good.
 
 Format your response clearly with labeled sections."""
 
-    result = invoke_llm(prompt)
+    result = invoke_llm_premium(prompt)
 
     return {
         "price_assessment": result,

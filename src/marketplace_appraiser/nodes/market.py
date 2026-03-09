@@ -34,6 +34,7 @@ def research_market(state: AppraisalState) -> dict:
     item_name = state.get("item_name", "Unknown Item")
     item_type = state.get("item_type", "vehicle")
     config = get_config(item_type)
+    item_fields = state.get("item_fields", {})
 
     listed_price = state.get("listed_price")
     location = state.get("location", "Unknown")
@@ -41,6 +42,12 @@ def research_market(state: AppraisalState) -> dict:
     condition_report = state.get("condition_report", "No condition report available")
 
     price_str = f"${listed_price:,.0f}" if listed_price else "Unknown"
+
+    # Item-type-specific details line for the prompt
+    item_details_str = ""
+    if item_type == "vehicle":
+        mileage = item_fields.get("mileage")
+        item_details_str = f"\n- Mileage: {mileage:,} miles" if mileage else ""
 
     # --- Web search for real pricing data ---
     print("  Searching for market data...")
@@ -63,7 +70,7 @@ market value assessment.
 ITEM DETAILS:
 - Item: {item_name}
 - Listed Price: {price_str}
-- Location: {location}
+- Location: {location}{item_details_str}
 {description_block}
 CONDITION ASSESSMENT:
 {condition_report}

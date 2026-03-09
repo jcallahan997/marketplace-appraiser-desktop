@@ -287,6 +287,16 @@ def analyze_images(state: AppraisalState) -> dict:
         print("\n  No images found — skipping vision analysis.")
         return {"image_analyses": ["No images were available for analysis."]}
 
+    # Smart sampling: if >8 images, take first 6 then every other one
+    # to get good coverage without excessive vision API costs
+    if len(image_paths) > 8:
+        sampled = list(image_paths[:6])
+        for i in range(6, len(image_paths), 2):
+            sampled.append(image_paths[i])
+        print(f"\n  {len(image_paths)} images found — sampling {len(sampled)} "
+              f"(first 6 + every other)")
+        image_paths = sampled
+
     print(f"\n{'='*60}")
     print(f"STEP 2: Analyzing {len(image_paths)} images with {vision_model} ({provider})")
     print(f"{'='*60}\n")

@@ -18,7 +18,7 @@ import re
 from playwright.async_api import async_playwright
 
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light
 from marketplace_appraiser.utils.search import safe_search
 
 
@@ -96,15 +96,48 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                             data.business_info = hoursMatch[1].trim();
                         }
 
-                        // Scrape visible listings
-                        const listingLinks = document.querySelectorAll(
+                        // Scrape visible listings — scoped to seller's
+                        // own listing grid, NOT the whole page.
+                        // Facebook profile pages show the seller's listings
+                        // in the main content area.  Recommendation links,
+                        // sidebar items, and "items near you" must be
+                        // excluded.
+
+                        // Strategy: walk up from each marketplace link and
+                        // only keep it if the link lives inside the main
+                        // content area AND the link's URL is on the same
+                        // seller's profile (the profile_url path contains
+                        // the seller ID).
+                        const profilePath = window.location.pathname;
+                        const mainContent = document.querySelector('[role="main"]');
+                        const listingLinks = (mainContent || document).querySelectorAll(
                             'a[href*="/marketplace/item/"]'
                         );
+
                         const seen = new Set();
                         for (const link of listingLinks) {
                             const href = link.href;
                             if (seen.has(href)) continue;
                             seen.add(href);
+
+                            // Skip links inside "Recommended" / "Related"
+                            // / "Items near you" sections
+                            const ancestors = [];
+                            let el = link;
+                            while (el && ancestors.length < 12) {
+                                ancestors.push(el);
+                                el = el.parentElement;
+                            }
+                            const ancestorText = ancestors
+                                .map(a => a.getAttribute && a.getAttribute('aria-label') || '')
+                                .join(' ').toLowerCase();
+                            if (ancestorText.includes('recommend')
+                                || ancestorText.includes('related')
+                                || ancestorText.includes('near you')
+                                || ancestorText.includes('suggested')
+                                || ancestorText.includes('more from marketplace')) {
+                                continue;
+                            }
 
                             // Find price and title near this link
                             const container = link.closest('div');
@@ -123,10 +156,24 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                             });
                         }
 
-                        // Total listings indicator
-                        const totalMatch = pageText.match(
+                        // Total listings indicator — try strict first, then broad
+                        // FB shows "N active listings", "N listings for sale", etc.
+                        let totalMatch = pageText.match(
                             /(\d+)\s+(?:listings?|items?)\s+(?:for sale|available)/i
                         );
+                        if (!totalMatch) {
+                            // "N active listings" pattern (common on profile pages)
+                            totalMatch = pageText.match(
+                                /(?<!Browse\s)(\d+)\s+active\s+listings?\b/i
+                            );
+                        }
+                        if (!totalMatch) {
+                            // Broader fallback: "N listings" without suffix,
+                            // but exclude "Browse N listings" (FB recommendation UI)
+                            totalMatch = pageText.match(
+                                /(?<!Browse\s)(\d+)\s+listings?\b/i
+                            );
+                        }
                         if (totalMatch) data.total_text = totalMatch[0];
 
                         return data;
@@ -152,67 +199,88 @@ def _research_seller_web(
 ) -> dict:
     """Web search for seller reputation across platforms.
 
-    Returns dict with keys: reputation_snippets, platform_hits, complaint_snippets
+    Runs 4 targeted searches (down from 8) using combined queries
+    to maximize signal per API call.
+
+    Returns dict with keys: reputation_snippets, platform_hits,
+        complaint_snippets, linkedin_snippets
     """
     if not seller_name:
-        return {"reputation_snippets": [], "platform_hits": [], "complaint_snippets": []}
+        return {
+            "reputation_snippets": [],
+            "platform_hits": [],
+            "complaint_snippets": [],
+            "linkedin_snippets": [],
+        }
 
     reputation_snippets = []
     complaint_snippets = []
     platform_hits = []
+    linkedin_snippets = []
 
-    # Reputation searches
-    rep_queries = [
-        f'"{seller_name}" {location} seller review',
-        f'"{seller_name}" {location} facebook marketplace',
-    ]
-    for query in rep_queries:
-        results = safe_search(query, max_results=5)
-        for r in results:
-            body = r.get("body", "")
-            if body:
-                reputation_snippets.append(body)
+    # 1. Combined reputation + Facebook presence (replaces 2 old queries)
+    results = safe_search(
+        f'"{seller_name}" {location} seller review facebook marketplace',
+        max_results=5,
+    )
+    for r in results:
+        body = r.get("body", "")
+        if body:
+            reputation_snippets.append(body)
 
-    # Complaint / scam searches
-    complaint_queries = [
-        f'"{seller_name}" {location} scam complaints',
-        f'"{seller_name}" BBB complaint',
-    ]
-    for query in complaint_queries:
-        results = safe_search(query, max_results=5)
-        for r in results:
-            body = r.get("body", "")
-            title = r.get("title", "")
-            if body:
-                complaint_snippets.append(f"{title}: {body}")
+    # 2. Complaints / scams / BBB (combined)
+    results = safe_search(
+        f'"{seller_name}" {location} scam complaints BBB reviews',
+        max_results=5,
+    )
+    for r in results:
+        body = r.get("body", "")
+        title = r.get("title", "")
+        if body:
+            complaint_snippets.append(f"{title}: {body}")
 
-    # Cross-platform searches
-    platforms = ["OfferUp", "Craigslist", "Mercari"]
-    for platform in platforms:
-        query = f'"{seller_name}" {location} {platform}'
-        results = safe_search(query, max_results=3)
-        for r in results:
-            body = r.get("body", "").lower()
-            title = r.get("title", "").lower()
-            combined = body + " " + title
-            name_lower = seller_name.lower().split()[0] if seller_name else ""
-            if name_lower and name_lower in combined:
-                platform_hits.append(f"{platform}: {r.get('title', '')}")
+    # 3. Cross-platform marketplace presence (single combined query)
+    name_lower = seller_name.lower().split()[0] if seller_name else ""
+    results = safe_search(
+        f'"{seller_name}" {location} OfferUp OR Craigslist OR Mercari',
+        max_results=5,
+    )
+    for r in results:
+        body = r.get("body", "").lower()
+        title = r.get("title", "").lower()
+        combined = body + " " + title
+        if name_lower and name_lower in combined:
+            platform_hits.append(r.get("title", ""))
 
-    # Search by phone number if present in description
+    # 4. LinkedIn professional profile
+    results = safe_search(
+        f'"{seller_name}" {location} site:linkedin.com OR linkedin.com/in',
+        max_results=3,
+    )
+    for r in results:
+        body = r.get("body", "")
+        title = r.get("title", "")
+        href = r.get("href", "")
+        if "linkedin" in href.lower() or "linkedin" in title.lower():
+            linkedin_snippets.append(f"{title}: {body[:300]}")
+        elif body and name_lower and name_lower in (body + title).lower():
+            linkedin_snippets.append(f"{title}: {body[:300]}")
+
+    # Optional: phone number in description
     phone_match = re.search(r"\b(\d{3}[-. )]+\d{3}[-. )]+\d{4})", description)
     if phone_match:
         phone = phone_match.group(1)
-        results = safe_search(f'"{phone}" for sale', max_results=3)
+        results = safe_search(f'"{phone}" for sale listing', max_results=3)
         for r in results:
             body = r.get("body", "")
             if body:
-                platform_hits.append(f"Phone match: {body[:200]}")
+                platform_hits.append(f"Phone: {body[:200]}")
 
     return {
         "reputation_snippets": reputation_snippets,
         "platform_hits": platform_hits,
         "complaint_snippets": complaint_snippets,
+        "linkedin_snippets": linkedin_snippets,
     }
 
 
@@ -259,15 +327,18 @@ SELLER PROFILE PAGE DATA:
     rep_snippets = web_research.get("reputation_snippets", [])
     complaint_snippets = web_research.get("complaint_snippets", [])
     platform_hits = web_research.get("platform_hits", [])
+    linkedin_snippets = web_research.get("linkedin_snippets", [])
 
-    if rep_snippets or complaint_snippets or platform_hits:
+    if rep_snippets or complaint_snippets or platform_hits or linkedin_snippets:
         parts = []
+        if linkedin_snippets:
+            parts.append("LinkedIn / Professional profile:\n" + "\n".join(linkedin_snippets[:3]))
         if rep_snippets:
-            parts.append(f"Reputation snippets:\n" + "\n".join(rep_snippets[:5]))
+            parts.append("Reputation snippets:\n" + "\n".join(rep_snippets[:5]))
         if complaint_snippets:
-            parts.append(f"Complaints found:\n" + "\n".join(complaint_snippets[:5]))
+            parts.append("Complaints found:\n" + "\n".join(complaint_snippets[:5]))
         if platform_hits:
-            parts.append(f"Cross-platform presence:\n" + "\n".join(platform_hits[:5]))
+            parts.append("Cross-platform presence:\n" + "\n".join(platform_hits[:5]))
         web_section = f"""
 WEB RESEARCH FINDINGS:
 {chr(10).join(parts)}
@@ -309,6 +380,14 @@ Summarize account age, listing frequency, and total active listings.
 
 ## Categories Sold
 What types of items do they sell? Is there a pattern?
+
+## Professional Background
+If LinkedIn or professional profile data is available, summarize their \
+occupation, employer, and any relevant background. Note whether their \
+professional background is consistent with their selling activity \
+(e.g. a car dealer selling cars, an IT worker selling electronics, \
+or a suspicious mismatch like a student selling 50+ items per month). \
+If no LinkedIn data found, state "No professional profile found."
 
 ## Reputation Signals
 Summarize any reviews, complaints, or platform presence found. \
@@ -381,7 +460,42 @@ def investigate_seller(state: AppraisalState) -> dict:
         print("  Phase 1: Scraping seller's profile page...")
         profile_data = asyncio.run(_scrape_seller_profile(seller_profile_url))
         listings = profile_data.get("listings", [])
-        print(f"  Found {len(listings)} listing(s) on their profile")
+        total_text = profile_data.get("total_text", "")
+        print(f"  Scraped {len(listings)} visible item(s) from profile "
+              f"(shown in email; NOT used as count — may include FB recommendations)")
+        if total_text:
+            print(f"  Profile page explicit count: \"{total_text}\"")
+
+        # Listing count priority:
+        # 1. Explicit "N listings for sale" text from profile page (most reliable)
+        # 2. "N listings" from listing page's Seller Information section
+        # 3. Nothing — do NOT use scraped link count; FB injects recommended
+        #    items everywhere so it's almost always inflated.
+        explicit_count = None
+        if total_text:
+            m = re.match(r"(\d+)", total_text)
+            if m:
+                explicit_count = int(m.group(1))
+
+        if explicit_count is not None:
+            seller_listings = str(explicit_count)
+            print(f"  Listing count → profile page text: {explicit_count}")
+        elif seller_listings:
+            print(f"  Listing count → listing page: {seller_listings}")
+        else:
+            print(f"  Listing count → unknown (no reliable text found)")
+
+        # Sanity check: if count looks inflated (>50), mark as unverified
+        if seller_listings:
+            try:
+                count_val = int(seller_listings)
+                if count_val > 50:
+                    print(f"  WARNING: Listing count {count_val} seems high — "
+                          f"marking as unverified")
+                    seller_listings = f"~{count_val} (unverified)"
+            except ValueError:
+                pass
+
         if profile_data.get("business_name"):
             print(f"  Business: {profile_data['business_name']}")
     else:
@@ -394,8 +508,9 @@ def investigate_seller(state: AppraisalState) -> dict:
     rep_count = len(web_research.get("reputation_snippets", []))
     complaint_count = len(web_research.get("complaint_snippets", []))
     platform_count = len(web_research.get("platform_hits", []))
+    linkedin_count = len(web_research.get("linkedin_snippets", []))
     print(f"  Found: {rep_count} reputation, {complaint_count} complaint, "
-          f"{platform_count} platform hit(s)")
+          f"{platform_count} platform, {linkedin_count} LinkedIn hit(s)")
 
     # Phase 3: LLM synthesis
     print("  Phase 3: Synthesizing seller profile...")
@@ -414,9 +529,13 @@ def investigate_seller(state: AppraisalState) -> dict:
 
     active_listings = profile_data.get("listings", [])
 
-    return {
+    result = {
         "seller_profile": profile_data,
         "seller_active_listings": active_listings,
         "seller_investigation": investigation,
         "seller_risk_level": risk_level,
     }
+    # Propagate corrected listing count back into state
+    if seller_listings:
+        result["seller_listings"] = seller_listings
+    return result

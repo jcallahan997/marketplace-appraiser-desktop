@@ -40,6 +40,44 @@ def _detect_provider(light: bool = False) -> tuple[bool, str]:
     return use_claude, text_model
 
 
+def invoke_llm_premium(prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
+    """High-quality LLM call using Opus (or PREMIUM_MODEL env var).
+
+    Use for the highest-stakes outputs where reasoning quality matters most
+    (e.g. final price assessment and BUY/NEGOTIATE/PASS recommendation).
+    Falls back to the default TEXT_MODEL if not using Claude.
+    """
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    premium_model = os.getenv("PREMIUM_MODEL", "claude-opus-4-6")
+
+    if not anthropic_key:
+        # No Claude key — fall back to standard invoke_llm
+        return invoke_llm(prompt, temperature=temperature, max_tokens=max_tokens)
+
+    print(f"  LLM-premium: {premium_model} (Claude API)")
+
+    import anthropic
+
+    client = anthropic.Anthropic()
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.messages.create(
+                model=premium_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.content[0].text
+        except (anthropic.OverloadedError, anthropic.InternalServerError,
+                anthropic.RateLimitError) as e:
+            if attempt == MAX_RETRIES:
+                raise
+            wait = INITIAL_BACKOFF * (2 ** (attempt - 1))
+            print(f"  Retry {attempt}/{MAX_RETRIES} after {type(e).__name__} "
+                  f"— waiting {wait}s...")
+            time.sleep(wait)
+
+
 def invoke_llm(prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
     """Send a text prompt to the best available LLM and return the response.
 

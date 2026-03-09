@@ -15,6 +15,11 @@ _lock = threading.Lock()
 _last_search_time: float = 0.0
 _RATE_LIMIT_SECONDS = 1.0
 
+# In-process search cache — keyed by (query, max_results).
+# Avoids duplicate API calls for identical searches within a single run.
+_cache: dict[tuple, list[dict]] = {}
+_cache_lock = threading.Lock()
+
 _MAX_RETRIES = 2
 _INITIAL_BACKOFF = 2.0
 
@@ -97,13 +102,25 @@ def _ddg_search(query: str, max_results: int = 5) -> list[dict]:
 def safe_search(query: str, max_results: int = 5) -> list[dict]:
     """Web search with Tavily as primary and DuckDuckGo as fallback.
 
+    Results are cached in-process by (query, max_results) so identical
+    searches within a single run hit the API only once.
+
     Returns list of result dicts (keys: title, body, href), or []
     on total failure.
     """
+    cache_key = (query.strip().lower(), max_results)
+    with _cache_lock:
+        if cache_key in _cache:
+            print(f"  [search] Cache hit for: {query[:60]}")
+            return _cache[cache_key]
+
     # Try Tavily first
     results = _tavily_search(query, max_results)
-    if results is not None:
-        return results
+    if results is None:
+        # Fall back to DuckDuckGo
+        results = _ddg_search(query, max_results)
 
-    # Fall back to DuckDuckGo
-    return _ddg_search(query, max_results)
+    with _cache_lock:
+        _cache[cache_key] = results
+
+    return results

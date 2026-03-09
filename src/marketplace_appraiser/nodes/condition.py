@@ -26,6 +26,7 @@ def assess_condition(state: AppraisalState) -> dict:
     item_name = state.get("item_name", "Unknown Item")
     item_type = state.get("item_type", "vehicle")
     config = get_config(item_type)
+    item_fields = state.get("item_fields", {})
 
     listed_price = state.get("listed_price")
     description = state.get("description", "No description provided")
@@ -33,6 +34,13 @@ def assess_condition(state: AppraisalState) -> dict:
     image_paths = state.get("image_paths", [])
 
     price_str = f"${listed_price:,.0f}" if listed_price else "Unknown"
+
+    # Build item-type-specific details line for the prompt
+    item_details_str = ""
+    if item_type == "vehicle":
+        mileage = item_fields.get("mileage")
+        mileage_str = f"{mileage:,} miles" if mileage else "Unknown"
+        item_details_str = f"\nMileage: {mileage_str}"
 
     # --- Step 1: Search for known options/packages ---
     print(f"  Searching for {item_name} options and packages...")
@@ -96,13 +104,22 @@ FOLLOW-ON RESEARCH (web search results verifying claims and unknowns):
 Use these research findings to validate or challenge the seller's claims.\
 """
 
+    mileage_condition_check = ""
+    if item_type == "vehicle" and item_fields.get("mileage"):
+        mileage = item_fields["mileage"]
+        mileage_str = f"{mileage:,} miles"
+        mileage_condition_check = (
+            f"\n8. Whether the condition is reasonable for {mileage_str} "
+            f"on this type of vehicle"
+        )
+
     prompt = f"""\
 You are {config.condition_role}. Review the following image \
 analyses of a {item_name} and synthesize them into a \
 comprehensive condition report.
 
 Item: {item_name}
-Listed Price: {price_str}
+Listed Price: {price_str}{item_details_str}
 Seller's description: {description}
 Seller-listed condition: {condition_listed}
 
@@ -117,8 +134,7 @@ Based on ALL of this information, provide:
 but not mentioned in the listing)
 5. List of notable issues or concerns
 6. List of notable positives
-7. Any discrepancies between the seller's claims and what the photos show
-8. Verified or debunked seller claims (based on research findings, if any)
+7. Any discrepancies between the seller's claims and what the photos show{mileage_condition_check}
 
 Be specific and evidence-based. If the photos don't show enough to assess \
 something, say so."""
