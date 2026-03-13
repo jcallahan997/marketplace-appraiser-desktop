@@ -2,14 +2,59 @@
 
 from marketplace_appraiser.item_types import get_config
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light
 from marketplace_appraiser.utils.research import (
     format_research_findings,
-    identify_options_from_photos,
     identify_research_questions,
     research_questions,
     search_available_options,
 )
+
+
+def _extract_options_from_analyses(
+    image_analyses: list[str],
+    description: str,
+    item_name: str,
+    known_options: str = "",
+) -> str:
+    """Extract options from existing image analyses via Haiku (no vision call).
+
+    Instead of re-analyzing images with Sonnet vision, this reads the text
+    of analyses already produced by the vision node and identifies options
+    the seller didn't mention.
+    """
+    if not image_analyses:
+        return ""
+
+    combined = "\n".join(
+        f"Photo {i + 1}: {a}" for i, a in enumerate(image_analyses)
+    )
+
+    known_section = ""
+    if known_options:
+        known_section = f"""
+
+KNOWN AVAILABLE OPTIONS for this item (from web research):
+{known_options[:2000]}
+
+Use this list to identify which options are mentioned in the photo analyses.\
+"""
+
+    prompt = f"""\
+Review these photo analyses of a {item_name} listing and identify any \
+options, features, or equipment mentioned that the seller did NOT include \
+in their description.
+{known_section}
+SELLER'S DESCRIPTION:
+{description or "(No description provided)"}
+
+PHOTO ANALYSES:
+{combined}
+
+List options/features visible in photos but not in description, one per line.
+If none, output exactly: NONE"""
+
+    return invoke_llm_light(prompt, temperature=0.2, max_tokens=512)
 
 
 def assess_condition(state: AppraisalState) -> dict:
@@ -42,20 +87,22 @@ def assess_condition(state: AppraisalState) -> dict:
         mileage_str = f"{mileage:,} miles" if mileage else "Unknown"
         item_details_str = f"\nMileage: {mileage_str}"
 
+    generation = item_fields.get("generation")
+
     # --- Step 1: Search for known options/packages ---
     print(f"  Searching for {item_name} options and packages...")
-    known_options = search_available_options(item_name)
+    known_options = search_available_options(item_name, generation=generation)
     if known_options:
         print(f"  Found options context ({len(known_options)} chars)")
     else:
         print("  No options context found")
 
-    # --- Step 2: Vision scan for options visible in photos ---
+    # --- Step 2: Extract options from existing image analyses (Haiku text) ---
     spotted_options = ""
-    if image_paths:
-        print("  Scanning photos for options not in description...")
-        spotted_options = identify_options_from_photos(
-            image_paths, description, item_name, known_options
+    if image_analyses:
+        print("  Extracting options from image analyses (Haiku text)...")
+        spotted_options = _extract_options_from_analyses(
+            image_analyses, description, item_name, known_options
         )
         if spotted_options and spotted_options.strip().upper() != "NONE":
             print(f"  Spotted options ({len(spotted_options)} chars)")
@@ -66,7 +113,8 @@ def assess_condition(state: AppraisalState) -> dict:
     # --- Step 3: Identify claims and terms to research ---
     print("  Identifying claims and terms to research...")
     queries = identify_research_questions(
-        description, image_analyses, item_name, spotted_options
+        description, image_analyses, item_name, spotted_options,
+        generation=generation,
     )
 
     research_block = ""
@@ -113,10 +161,14 @@ Use these research findings to validate or challenge the seller's claims.\
             f"on this type of vehicle"
         )
 
+    from datetime import date as _date
+
     prompt = f"""\
 You are {config.condition_role}. Review the following image \
 analyses of a {item_name} and synthesize them into a \
 comprehensive condition report.
+
+Today's date: {_date.today().isoformat()}
 
 Item: {item_name}
 Listed Price: {price_str}{item_details_str}

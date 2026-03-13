@@ -5,108 +5,9 @@ from datetime import datetime
 
 from marketplace_appraiser.item_types import get_config
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light, invoke_llm_premium
+from marketplace_appraiser.utils.llm import invoke_llm_light, invoke_llm_premium
 from marketplace_appraiser.utils.safety_apis import check_safety
 from marketplace_appraiser.utils.search import safe_search
-
-
-# ---------------------------------------------------------------------------
-# Seller ethnicity inference (informational only)
-# ---------------------------------------------------------------------------
-
-def _infer_seller_ethnicity(name: str) -> tuple[str, str]:
-    """Infer likely ethnicity from the seller's name using web search + LLM.
-
-    Returns (background_label, reasoning) where:
-    - background_label is a short 3-10 word label (e.g. "Polish or Polish-American")
-    - reasoning is a 2-3 sentence explanation citing web research
-
-    This is informational context for the buyer only — NOT used in the
-    price assessment prompt or recommendations.
-    """
-    if not name:
-        return "", ""
-
-    # Split name into parts for targeted searches
-    parts = name.strip().split()
-    given_name = parts[0] if parts else ""
-    surname = parts[-1] if len(parts) > 1 else ""
-
-    # Web search for name origins
-    search_context = ""
-    if surname:
-        results = safe_search(f'"{surname}" surname origin ethnicity', max_results=3)
-        snippets = [r.get("body", "") for r in results if r.get("body")]
-        if snippets:
-            search_context += f"Surname research for \"{surname}\":\n"
-            search_context += "\n".join(f"- {s[:300]}" for s in snippets[:3])
-            search_context += "\n\n"
-
-    if given_name and given_name != surname:
-        results = safe_search(f'"{given_name}" name origin meaning', max_results=3)
-        snippets = [r.get("body", "") for r in results if r.get("body")]
-        if snippets:
-            search_context += f"Given name research for \"{given_name}\":\n"
-            search_context += "\n".join(f"- {s[:300]}" for s in snippets[:3])
-            search_context += "\n\n"
-
-    prompt = f"""\
-Analyze the name "{name}" and infer the most likely specific ethnic, \
-cultural, or regional background. Use the web research below AND your \
-knowledge of global naming conventions.
-
-WEB RESEARCH ON THIS NAME:
-{search_context if search_context else "(no web results found)"}
-
-Naming convention guidance:
-- **Surname patterns**: "-ez" = Spanish patronymic; "-ski/-ska" = Polish; \
-  "-ov/-ova" = Slavic; "-ian/-yan" = Armenian; "O'" = Irish; "Mc/Mac" = \
-  Scottish/Irish; "-sen/-son" = Scandinavian; "-ić" = South Slavic; \
-  "Al-/El-" = Arabic; "Van/Von" = Dutch/German; "-escu" = Romanian; \
-  "-nen" = Finnish; "-oğlu" = Turkish; "-dze/-shvili" = Georgian.
-- **Given names**: cultural/religious traditions (Muhammad/Fatima = Muslim; \
-  Moshe/Yael = Jewish; Priya/Arjun = Hindu; Singh/Kaur = Sikh).
-- **Regional specificity**: Mexican vs. Colombian; Yoruba vs. Igbo; \
-  North Indian vs. South Indian; Ashkenazi vs. Sephardic Jewish.
-- **Common American names**: "Smith", "Johnson", "Williams" are common \
-  across white and Black Americans — note the ambiguity.
-
-Output format — exactly two sections:
-BACKGROUND: <specific background, 3-10 words>
-REASONING: <2-3 sentences explaining your inference, citing the web \
-research findings where relevant>
-
-Be specific. "West African (likely Nigerian Yoruba)" > "African". \
-"Mexican or Central American" > "Hispanic". If ambiguous, say so."""
-
-    try:
-        result = invoke_llm_light(prompt, temperature=0.1)
-
-        background = ""
-        reasoning = ""
-
-        # Parse BACKGROUND line
-        bg_match = re.search(
-            r"BACKGROUND:\s*(.+?)(?:\n|$)", result, re.IGNORECASE
-        )
-        if bg_match:
-            background = bg_match.group(1).strip()
-
-        # Parse REASONING section (everything after REASONING:)
-        reason_match = re.search(
-            r"REASONING:\s*(.+)", result, re.IGNORECASE | re.DOTALL
-        )
-        if reason_match:
-            reasoning = reason_match.group(1).strip()
-
-        # Fallback: if no structured output, use full result as background
-        if not background:
-            background = result.strip().split("\n")[0].strip()
-
-        return background, reasoning
-
-    except Exception:
-        return "", ""
 
 
 # ---------------------------------------------------------------------------
@@ -333,16 +234,23 @@ and seller reputation is good, you CAN recommend BUY.
 Judge it on price and condition like any other listing.\
 """
 
-    # --- Seller ethnicity (informational only — not used in prompt) ---
+    # --- Seller ethnicity (parsed from seller investigation — no extra API calls) ---
     seller_ethnicity = ""
     seller_ethnicity_reasoning = ""
-    if seller_name:
-        print(f"  Inferring seller background: {seller_name}...")
-        seller_ethnicity, seller_ethnicity_reasoning = _infer_seller_ethnicity(seller_name)
+    if seller_investigation:
+        bg_match = re.search(
+            r"BACKGROUND:\s*(.+?)(?:\n|$)", seller_investigation, re.IGNORECASE
+        )
+        if bg_match:
+            seller_ethnicity = bg_match.group(1).replace("**", "").strip()
+        reason_match = re.search(
+            r"REASONING:\s*(.+?)(?:\n##|\Z)", seller_investigation,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if reason_match:
+            seller_ethnicity_reasoning = reason_match.group(1).replace("**", "").strip()
         if seller_ethnicity:
-            print(f"  Seller background: {seller_ethnicity}")
-        if seller_ethnicity_reasoning:
-            print(f"  Reasoning: {seller_ethnicity_reasoning[:200]}")
+            print(f"  Seller background (from investigation): {seller_ethnicity}")
 
     # --- Safety checks ---
     print("  Running safety checks...")
@@ -371,9 +279,13 @@ FOLLOW-ON RESEARCH (verified claims from description & photos):
 {description_research}
 """
 
+    from datetime import date as _date
+
     prompt = f"""\
 You are {config.price_role}. Produce a final price assessment for \
 this listing.
+
+Today's date: {_date.today().isoformat()}
 
 ITEM DETAILS:
 - Item: {item_name}
@@ -414,7 +326,11 @@ untrustworthy seller, or far above market)
 unverifiable or suspicious seller is a major risk even if the item looks good.
 7. Flip/reseller risk assessment if any indicators were found.
 8. Listing age impact on negotiation strategy (if applicable)
-9. A 3-4 sentence summary paragraph for the buyer
+9. KEY CONCERNS: List 3-5 key concerns or risks for the buyer as a \
+bulleted list. Include condition issues, pricing risks, seller red flags, \
+and any other factors that could affect the purchase decision. If there \
+are no significant concerns, state that explicitly.
+10. A 3-4 sentence summary paragraph for the buyer
 
 Format your response clearly with labeled sections."""
 

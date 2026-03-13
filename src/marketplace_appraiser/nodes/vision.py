@@ -13,12 +13,20 @@ from marketplace_appraiser.state import AppraisalState
 from marketplace_appraiser.utils.search import safe_search
 
 
-def _search_item_context(item_name: str) -> str:
+def _search_item_context(
+    item_name: str, generation: dict | None = None,
+) -> str:
     """Web search for context and known issues specific to this item."""
     queries = [
         f"{item_name} review buyer's guide what to know",
         f"{item_name} common problems what to look for buying",
     ]
+    # Generation-based query pulls richer forum/enthusiast results
+    if generation:
+        queries.append(
+            f"{generation['code']} {generation['name']}"
+            f" common problems issues reliability"
+        )
     all_snippets = []
     for query in queries:
         results = safe_search(query, max_results=5)
@@ -287,22 +295,23 @@ def analyze_images(state: AppraisalState) -> dict:
         print("\n  No images found — skipping vision analysis.")
         return {"image_analyses": ["No images were available for analysis."]}
 
-    # Smart sampling: if >8 images, take first 6 then every other one
+    # Smart sampling: if >6 images, take first 4 then every 3rd
     # to get good coverage without excessive vision API costs
-    if len(image_paths) > 8:
-        sampled = list(image_paths[:6])
-        for i in range(6, len(image_paths), 2):
+    if len(image_paths) > 6:
+        sampled = list(image_paths[:4])
+        for i in range(4, len(image_paths), 3):
             sampled.append(image_paths[i])
         print(f"\n  {len(image_paths)} images found — sampling {len(sampled)} "
-              f"(first 6 + every other)")
+              f"(first 4 + every 3rd)")
         image_paths = sampled
 
     print(f"\n{'='*60}")
     print(f"STEP 2: Analyzing {len(image_paths)} images with {vision_model} ({provider})")
     print(f"{'='*60}\n")
 
+    generation = state.get("item_fields", {}).get("generation")
     print(f"  Searching for item context on {item_name}...")
-    known_issues = _search_item_context(item_name)
+    known_issues = _search_item_context(item_name, generation=generation)
     if known_issues:
         print(f"  Found item context ({len(known_issues)} chars)")
     else:

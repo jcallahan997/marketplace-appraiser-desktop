@@ -638,13 +638,17 @@ async def _extract_image_urls(page, scope) -> list[str]:
         seen.add(first_url)
 
     MAX_CLICKS = 20
+
+    # --- Layer 1: aria-label carousel buttons (expanded list) ---
     for _ in range(MAX_CLICKS):
         try:
             clicked = await page.evaluate(
                 """() => {
                     const labels = [
                         'Next', 'Next photo', 'Next image',
-                        'View next image', 'View next photo'
+                        'View next image', 'View next photo',
+                        'Go to next slide', 'Show next', 'right',
+                        'Next slide', 'Navigate forward', 'Forward'
                     ];
                     for (const label of labels) {
                         const btn = document.querySelector(
@@ -671,6 +675,98 @@ async def _extract_image_urls(page, scope) -> list[str]:
             seen.add(new_url)
         except Exception:
             break
+
+    # --- Layer 2: spatial button detection (right-side clickable) ---
+    if len(urls) <= 1:
+        for _ in range(MAX_CLICKS):
+            try:
+                clicked = await page.evaluate(
+                    """() => {
+                        const imgs = document.querySelectorAll('img[src*="scontent"]');
+                        let targetImg = null;
+                        let maxArea = 0;
+                        for (const img of imgs) {
+                            const r = img.getBoundingClientRect();
+                            const area = r.width * r.height;
+                            if (area > maxArea && r.width > 300
+                                && r.height > 200 && r.y < 600) {
+                                maxArea = area;
+                                targetImg = img;
+                            }
+                        }
+                        if (!targetImg) return false;
+                        const imgRect = targetImg.getBoundingClientRect();
+                        let container = targetImg.parentElement;
+                        for (let i = 0; i < 10; i++) {
+                            if (!container) break;
+                            if (container.offsetWidth >= imgRect.width * 0.9)
+                                break;
+                            container = container.parentElement;
+                        }
+                        if (!container) return false;
+                        const btns = container.querySelectorAll(
+                            '[role="button"], button, [tabindex="0"]'
+                        );
+                        for (const btn of btns) {
+                            const br = btn.getBoundingClientRect();
+                            if (br.x > imgRect.x + imgRect.width * 0.5
+                                && br.y > imgRect.y
+                                && br.y < imgRect.y + imgRect.height
+                                && br.width < 120 && br.height < 120
+                                && btn.offsetParent !== null) {
+                                btn.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }"""
+                )
+
+                if not clicked:
+                    break
+
+                await page.wait_for_timeout(800)
+
+                new_url = await _get_current_image()
+                if not new_url or new_url in seen:
+                    break
+                urls.append(new_url)
+                seen.add(new_url)
+            except Exception:
+                break
+
+    # --- Layer 3: keyboard arrow navigation ---
+    if len(urls) <= 1:
+        try:
+            await page.evaluate(
+                """() => {
+                    const imgs = document.querySelectorAll('img[src*="scontent"]');
+                    for (const img of imgs) {
+                        const r = img.getBoundingClientRect();
+                        if (r.width > 300 && r.height > 200 && r.y < 600) {
+                            img.parentElement.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }"""
+            )
+            await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
+        for _ in range(MAX_CLICKS):
+            try:
+                await page.keyboard.press("ArrowRight")
+                await page.wait_for_timeout(800)
+
+                new_url = await _get_current_image()
+                if not new_url or new_url in seen:
+                    break
+                urls.append(new_url)
+                seen.add(new_url)
+            except Exception:
+                break
 
     if not urls:
         try:
@@ -784,6 +880,23 @@ async def _scrape(url: str) -> dict:
                     except Exception:
                         pass
                 item_fields["mileage"] = mileage
+
+                # Look up generation/chassis code for richer search queries
+                if item_fields.get("year") and item_fields.get("make"):
+                    from marketplace_appraiser.item_types.vehicle import (
+                        lookup_vehicle_generation,
+                    )
+                    gen = lookup_vehicle_generation(
+                        item_fields["year"],
+                        item_fields["make"],
+                        item_fields.get("model", ""),
+                    )
+                    if gen:
+                        item_fields["generation"] = gen
+                        print(
+                            f"  Generation: {gen['code']}"
+                            f" ({gen['name']}, {gen['years']})"
+                        )
             else:
                 item_name = title
 

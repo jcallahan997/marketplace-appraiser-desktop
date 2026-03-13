@@ -10,3 +10,7 @@ dist/
 build/
 .pytest_cache/
 .DS_Store
+electron/node_modules/
+dashboard/node_modules/
+dashboard/dist/
+output/history/

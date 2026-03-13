@@ -18,7 +18,7 @@ import re
 from playwright.async_api import async_playwright
 
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm, invoke_llm_light
+from marketplace_appraiser.utils.llm import invoke_llm_light
 from marketplace_appraiser.utils.search import safe_search
 
 
@@ -61,20 +61,38 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                             business_name: '',
                             business_info: '',
                             listings: [],
+                            sold_listings: [],
                             total_text: ''
                         };
 
-                        // Bio / about text
-                        const aboutEls = document.querySelectorAll(
-                            'span, div'
-                        );
-                        for (const el of aboutEls) {
-                            const t = el.textContent.trim();
-                            if (t.length > 50 && t.length < 500
-                                && !t.includes('Marketplace')
-                                && !t.includes('Privacy')) {
-                                // Likely a bio or about section
-                                if (el.closest('[role="main"]')) {
+                        // Bio / about text — look near "About" heading.
+                        // FB profile pages have an "About" heading followed
+                        // by the actual bio.  Searching broadly grabs
+                        // recommendation card text, so we scope to elements
+                        // that appear AFTER the "About" heading.
+                        const mainEl = document.querySelector('[role="main"]');
+                        if (mainEl) {
+                            const allEls = mainEl.querySelectorAll(
+                                'h2, h3, span, div'
+                            );
+                            let foundAbout = false;
+                            for (const el of allEls) {
+                                const t = el.textContent.trim();
+                                if (!foundAbout) {
+                                    if (t === 'About'
+                                        || t === 'About this seller') {
+                                        foundAbout = true;
+                                    }
+                                    continue;
+                                }
+                                // After "About" heading — grab first
+                                // substantial text not inside a link
+                                // (listing cards are always wrapped in <a>)
+                                if (t.length > 10 && t.length < 500
+                                    && t !== 'About'
+                                    && t !== 'About this seller'
+                                    && !t.includes('Marketplace')
+                                    && !el.closest('a')) {
                                     data.bio = t;
                                     break;
                                 }
@@ -96,21 +114,41 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                             data.business_info = hoursMatch[1].trim();
                         }
 
-                        // Scrape visible listings — scoped to seller's
-                        // own listing grid, NOT the whole page.
-                        // Facebook profile pages show the seller's listings
-                        // in the main content area.  Recommendation links,
-                        // sidebar items, and "items near you" must be
-                        // excluded.
-
-                        // Strategy: walk up from each marketplace link and
-                        // only keep it if the link lives inside the main
-                        // content area AND the link's URL is on the same
-                        // seller's profile (the profile_url path contains
-                        // the seller ID).
-                        const profilePath = window.location.pathname;
+                        // Scrape visible listings — scoped to the
+                        // "{Name}'s listings" section on the profile page.
+                        // FB profile pages show "Today's picks"
+                        // recommendations before the seller's own listings.
+                        // We find the heading and scope to its container.
                         const mainContent = document.querySelector('[role="main"]');
-                        const listingLinks = (mainContent || document).querySelectorAll(
+
+                        // Step 1: Find the seller's listings section heading
+                        let listingsContainer = null;
+                        const headings = (mainContent || document).querySelectorAll(
+                            'h2, h3, span[role="heading"], [aria-level]'
+                        );
+                        for (const h of headings) {
+                            const hText = h.textContent.trim().toLowerCase();
+                            if (hText.includes('\u2019s listings')
+                                || hText.includes("'s listings")) {
+                                // Walk up to find the section container
+                                listingsContainer = h.parentElement;
+                                for (let i = 0; i < 3; i++) {
+                                    if (listingsContainer.parentElement
+                                        && listingsContainer.parentElement
+                                            !== mainContent) {
+                                        listingsContainer =
+                                            listingsContainer.parentElement;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        // Step 2: Search within that container (or fall
+                        // back to mainContent with extra filtering)
+                        const searchRoot =
+                            listingsContainer || mainContent || document;
+                        const listingLinks = searchRoot.querySelectorAll(
                             'a[href*="/marketplace/item/"]'
                         );
 
@@ -120,22 +158,30 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                             if (seen.has(href)) continue;
                             seen.add(href);
 
-                            // Skip links inside "Recommended" / "Related"
-                            // / "Items near you" sections
+                            // Skip recommendation URLs
+                            if (href.includes('marketplace_top_picks')
+                                || href.includes('recommended')) {
+                                continue;
+                            }
+
+                            // Safety-net: skip links with recommendation
+                            // ancestor aria-labels
                             const ancestors = [];
-                            let el = link;
-                            while (el && ancestors.length < 12) {
-                                ancestors.push(el);
-                                el = el.parentElement;
+                            let anc = link;
+                            while (anc && ancestors.length < 12) {
+                                ancestors.push(anc);
+                                anc = anc.parentElement;
                             }
                             const ancestorText = ancestors
-                                .map(a => a.getAttribute && a.getAttribute('aria-label') || '')
+                                .map(a => a.getAttribute
+                                    && a.getAttribute('aria-label') || '')
                                 .join(' ').toLowerCase();
                             if (ancestorText.includes('recommend')
-                                || ancestorText.includes('related')
+                                || ancestorText.includes('today')
                                 || ancestorText.includes('near you')
                                 || ancestorText.includes('suggested')
-                                || ancestorText.includes('more from marketplace')) {
+                                || ancestorText.includes(
+                                    'more from marketplace')) {
                                 continue;
                             }
 
@@ -154,6 +200,53 @@ async def _scrape_seller_profile(profile_url: str) -> dict:
                                 price: priceMatch ? priceMatch[0] : '',
                                 url: href
                             });
+                        }
+
+                        // Look for sold/past/inactive listings section
+                        const soldHeadings = (mainContent || document)
+                            .querySelectorAll(
+                                'h2, h3, span[role="heading"], [aria-level]'
+                            );
+                        for (const h of soldHeadings) {
+                            const hText = h.textContent.trim().toLowerCase();
+                            if (hText.includes('sold')
+                                || hText.includes('past')
+                                || hText.includes('completed')
+                                || hText.includes('previously listed')) {
+                                let soldContainer = h.parentElement;
+                                for (let i = 0; i < 3; i++) {
+                                    if (soldContainer.parentElement
+                                        && soldContainer.parentElement
+                                            !== mainContent) {
+                                        soldContainer =
+                                            soldContainer.parentElement;
+                                    }
+                                }
+                                const soldLinks =
+                                    soldContainer.querySelectorAll(
+                                        'a[href*="/marketplace/item/"]'
+                                    );
+                                const soldSeen = new Set();
+                                for (const link of soldLinks) {
+                                    const href = link.href;
+                                    if (soldSeen.has(href)
+                                        || seen.has(href)) continue;
+                                    soldSeen.add(href);
+                                    const cont = link.closest('div');
+                                    if (!cont) continue;
+                                    const txt = cont.innerText || '';
+                                    const pm = txt.match(/\$[\d,]+/);
+                                    const ls = txt.split('\n').filter(
+                                        l => l.trim().length > 3
+                                    );
+                                    data.sold_listings.push({
+                                        title: ls[0] || '',
+                                        price: pm ? pm[0] : '',
+                                        url: href
+                                    });
+                                }
+                                break;
+                            }
                         }
 
                         // Total listings indicator — try strict first, then broad
@@ -199,11 +292,12 @@ def _research_seller_web(
 ) -> dict:
     """Web search for seller reputation across platforms.
 
-    Runs 4 targeted searches (down from 8) using combined queries
-    to maximize signal per API call.
+    Runs 4 targeted searches (+ optional phone + name-origin) using
+    combined queries to maximize signal per API call.
 
     Returns dict with keys: reputation_snippets, platform_hits,
-        complaint_snippets, linkedin_snippets
+        complaint_snippets, linkedin_snippets, past_listing_snippets,
+        name_origin_snippets
     """
     if not seller_name:
         return {
@@ -211,36 +305,38 @@ def _research_seller_web(
             "platform_hits": [],
             "complaint_snippets": [],
             "linkedin_snippets": [],
+            "past_listing_snippets": [],
+            "name_origin_snippets": [],
         }
 
     reputation_snippets = []
     complaint_snippets = []
     platform_hits = []
     linkedin_snippets = []
+    past_listing_snippets = []
 
-    # 1. Combined reputation + Facebook presence (replaces 2 old queries)
-    results = safe_search(
-        f'"{seller_name}" {location} seller review facebook marketplace',
-        max_results=5,
-    )
-    for r in results:
-        body = r.get("body", "")
-        if body:
-            reputation_snippets.append(body)
+    name_lower = seller_name.lower().split()[0] if seller_name else ""
+    full_name_lower = seller_name.lower() if seller_name else ""
 
-    # 2. Complaints / scams / BBB (combined)
+    # 1. Reputation + complaints + Facebook presence (merged)
     results = safe_search(
-        f'"{seller_name}" {location} scam complaints BBB reviews',
+        f'"{seller_name}" {location} seller review reputation complaints BBB',
         max_results=5,
     )
     for r in results:
         body = r.get("body", "")
         title = r.get("title", "")
+        body_lower = (body + " " + title).lower()
         if body:
-            complaint_snippets.append(f"{title}: {body}")
+            # Route to complaints if scam/complaint keywords present
+            if any(kw in body_lower for kw in (
+                "scam", "complaint", "fraud", "rip", "bbb", "warning"
+            )):
+                complaint_snippets.append(f"{title}: {body}")
+            else:
+                reputation_snippets.append(body)
 
-    # 3. Cross-platform marketplace presence (single combined query)
-    name_lower = seller_name.lower().split()[0] if seller_name else ""
+    # 3. Cross-platform marketplace presence (improved name matching)
     results = safe_search(
         f'"{seller_name}" {location} OfferUp OR Craigslist OR Mercari',
         max_results=5,
@@ -249,10 +345,12 @@ def _research_seller_web(
         body = r.get("body", "").lower()
         title = r.get("title", "").lower()
         combined = body + " " + title
-        if name_lower and name_lower in combined:
+        # Match on full name or first name
+        if (full_name_lower and full_name_lower in combined) or \
+           (name_lower and name_lower in combined):
             platform_hits.append(r.get("title", ""))
 
-    # 4. LinkedIn professional profile
+    # 4. LinkedIn professional profile (full body + URLs preserved)
     results = safe_search(
         f'"{seller_name}" {location} site:linkedin.com OR linkedin.com/in',
         max_results=3,
@@ -262,9 +360,27 @@ def _research_seller_web(
         title = r.get("title", "")
         href = r.get("href", "")
         if "linkedin" in href.lower() or "linkedin" in title.lower():
-            linkedin_snippets.append(f"{title}: {body[:300]}")
+            linkedin_snippets.append(f"{title} ({href}): {body}")
         elif body and name_lower and name_lower in (body + title).lower():
-            linkedin_snippets.append(f"{title}: {body[:300]}")
+            linkedin_snippets.append(f"{title} ({href}): {body}")
+
+    # 5. Business/dealer presence + past selling activity (merged)
+    results = safe_search(
+        f'"{seller_name}" {location} business dealer "for sale" OR "sold"',
+        max_results=5,
+    )
+    for r in results:
+        body = r.get("body", "")
+        title = r.get("title", "")
+        if body and name_lower and name_lower in (body + title).lower():
+            body_lower = (body + " " + title).lower()
+            # Route to past-listing or reputation bucket
+            if any(kw in body_lower for kw in (
+                "for sale", "sold", "listed", "listing"
+            )):
+                past_listing_snippets.append(f"{title}: {body[:300]}")
+            else:
+                reputation_snippets.append(f"{title}: {body}")
 
     # Optional: phone number in description
     phone_match = re.search(r"\b(\d{3}[-. )]+\d{3}[-. )]+\d{4})", description)
@@ -276,11 +392,26 @@ def _research_seller_web(
             if body:
                 platform_hits.append(f"Phone: {body[:200]}")
 
+    # Name origin research (for background inference in synthesis prompt)
+    name_origin_snippets = []
+    if seller_name:
+        parts = seller_name.strip().split()
+        surname = parts[-1] if len(parts) > 1 else parts[0]
+        results = safe_search(
+            f'"{surname}" surname origin ethnicity', max_results=3
+        )
+        for r in results:
+            body = r.get("body", "")
+            if body:
+                name_origin_snippets.append(body[:200])
+
     return {
         "reputation_snippets": reputation_snippets,
         "platform_hits": platform_hits,
         "complaint_snippets": complaint_snippets,
         "linkedin_snippets": linkedin_snippets,
+        "past_listing_snippets": past_listing_snippets,
+        "name_origin_snippets": name_origin_snippets,
     }
 
 
@@ -314,13 +445,27 @@ def _synthesize_seller_profile(
                 )
             listing_summary = "\n".join(listing_lines)
 
+        sold_listings = profile_data.get("sold_listings", [])
+        sold_summary = ""
+        if sold_listings:
+            sold_lines = []
+            for lst in sold_listings[:10]:
+                sold_lines.append(
+                    f"  - {lst.get('title', 'Unknown')} — {lst.get('price', 'N/A')}"
+                )
+            sold_summary = (
+                "\nSold/past listings found on profile:\n"
+                + "\n".join(sold_lines)
+            )
+
         profile_section = f"""
 SELLER PROFILE PAGE DATA:
 - Bio: {profile_data.get('bio', 'None found')}
 - Business name: {profile_data.get('business_name', 'None')}
 - Business info: {profile_data.get('business_info', 'None')}
-- Active listings found: {len(listings)}
-{listing_summary if listing_summary else '  (no listings scraped)'}
+- Listings visually scraped: {len(listings)} (partial sample — use "Listed items count" above as the authoritative number)
+{listing_summary if listing_summary else '  (no individual listings scraped from page)'}
+{sold_summary}
 """
 
     web_section = ""
@@ -328,8 +473,12 @@ SELLER PROFILE PAGE DATA:
     complaint_snippets = web_research.get("complaint_snippets", [])
     platform_hits = web_research.get("platform_hits", [])
     linkedin_snippets = web_research.get("linkedin_snippets", [])
+    past_snippets = web_research.get("past_listing_snippets", [])
 
-    if rep_snippets or complaint_snippets or platform_hits or linkedin_snippets:
+    name_origin_snippets = web_research.get("name_origin_snippets", [])
+
+    if (rep_snippets or complaint_snippets or platform_hits
+            or linkedin_snippets or past_snippets or name_origin_snippets):
         parts = []
         if linkedin_snippets:
             parts.append("LinkedIn / Professional profile:\n" + "\n".join(linkedin_snippets[:3]))
@@ -339,6 +488,10 @@ SELLER PROFILE PAGE DATA:
             parts.append("Complaints found:\n" + "\n".join(complaint_snippets[:5]))
         if platform_hits:
             parts.append("Cross-platform presence:\n" + "\n".join(platform_hits[:5]))
+        if past_snippets:
+            parts.append("Past selling activity:\n" + "\n".join(past_snippets[:5]))
+        if name_origin_snippets:
+            parts.append("Name origin research:\n" + "\n".join(name_origin_snippets[:3]))
         web_section = f"""
 WEB RESEARCH FINDINGS:
 {chr(10).join(parts)}
@@ -354,9 +507,13 @@ BASIC SELLER INFO:
 - Location: {location or 'Unknown'}
 """
 
+    from datetime import date as _date
+
     prompt = f"""\
 Analyze all available information about this Facebook Marketplace seller \
 and produce a structured seller profile.
+
+Today's date: {_date.today().isoformat()}
 
 {seller_info_section}{profile_section}{web_section}
 
@@ -376,10 +533,14 @@ Classify as: Individual / Casual Reseller / Volume Reseller / Business/Dealer
 Explain your reasoning based on listing volume, categories, and language.
 
 ## Account & Activity
-Summarize account age, listing frequency, and total active listings.
+Summarize account age, listing frequency, and total active listings. \
+If sold/past listings are available, note the volume and categories \
+to establish a historical selling pattern.
 
 ## Categories Sold
-What types of items do they sell? Is there a pattern?
+What types of items do they sell? Is there a pattern? \
+If past/sold listings are available, note whether the categories \
+have shifted over time or remained consistent.
 
 ## Professional Background
 If LinkedIn or professional profile data is available, summarize their \
@@ -405,10 +566,17 @@ similar names.
 ## Key Findings
 3-5 bullet points of the most noteworthy discoveries.
 
+## Seller Background
+Based on the seller's name and any name-origin research above, infer the \
+most likely ethnic, cultural, or regional background. Output as:
+BACKGROUND: <specific background, 3-10 words>
+REASONING: <1-2 sentences explaining your inference>
+If the name is ambiguous or very common, note that.
+
 Be direct and factual. If information is missing, say so. If web results \
 are ambiguous about identity, explicitly note the uncertainty."""
 
-    investigation = invoke_llm(prompt, temperature=0.2)
+    investigation = invoke_llm_light(prompt, temperature=0.2, max_tokens=2048)
 
     # Extract risk level from the investigation text
     risk_level = "MEDIUM"  # default
@@ -460,9 +628,10 @@ def investigate_seller(state: AppraisalState) -> dict:
         print("  Phase 1: Scraping seller's profile page...")
         profile_data = asyncio.run(_scrape_seller_profile(seller_profile_url))
         listings = profile_data.get("listings", [])
+        sold_listings = profile_data.get("sold_listings", [])
         total_text = profile_data.get("total_text", "")
-        print(f"  Scraped {len(listings)} visible item(s) from profile "
-              f"(shown in email; NOT used as count — may include FB recommendations)")
+        print(f"  Scraped {len(listings)} active + {len(sold_listings)} "
+              f"sold/past item(s) from profile")
         if total_text:
             print(f"  Profile page explicit count: \"{total_text}\"")
 
@@ -509,8 +678,10 @@ def investigate_seller(state: AppraisalState) -> dict:
     complaint_count = len(web_research.get("complaint_snippets", []))
     platform_count = len(web_research.get("platform_hits", []))
     linkedin_count = len(web_research.get("linkedin_snippets", []))
+    past_count = len(web_research.get("past_listing_snippets", []))
     print(f"  Found: {rep_count} reputation, {complaint_count} complaint, "
-          f"{platform_count} platform, {linkedin_count} LinkedIn hit(s)")
+          f"{platform_count} platform, {linkedin_count} LinkedIn, "
+          f"{past_count} past-activity hit(s)")
 
     # Phase 3: LLM synthesis
     print("  Phase 3: Synthesizing seller profile...")

@@ -18,9 +18,14 @@ def check_vehicle_recalls(make: str, model: str, year: int) -> dict:
     Each recall dict has: component, summary, remedy, nhtsa_id.
     """
     try:
+        # NHTSA API rejects hyphens — "Mercedes-Benz" → 400,
+        # but "Mercedes Benz" → 3 recalls found
+        api_make = make.replace("-", " ")
+        api_model = model.replace("-", " ")
+
         resp = requests.get(
             RECALLS_URL,
-            params={"make": make, "model": model, "modelYear": str(year)},
+            params={"make": api_make, "model": api_model, "modelYear": str(year)},
             timeout=15,
         )
         resp.raise_for_status()

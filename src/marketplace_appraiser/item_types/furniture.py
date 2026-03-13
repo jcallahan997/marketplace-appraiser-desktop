@@ -104,7 +104,6 @@ spots, shed skins), mold/mildew, structural cracks""",
     market_search_templates=[
         "{item_name} used price resale value",
         "{item_name} retail price new",
-        "{item_name} review quality",
     ],
 
     fraud_patterns=[

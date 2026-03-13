@@ -33,6 +33,56 @@ MULTI_WORD_MODELS: dict[str, list[str]] = {
 
 
 # ---------------------------------------------------------------------------
+# Model-code → manufacturer lookup (for titles missing the make)
+# ---------------------------------------------------------------------------
+
+_MODEL_CODE_EXPLICIT: dict[str, str] = {
+    # Porsche (must precede BMW digit patterns)
+    "911": "Porsche", "718": "Porsche", "boxster": "Porsche",
+    "cayman": "Porsche", "cayenne": "Porsche", "panamera": "Porsche",
+    "macan": "Porsche", "taycan": "Porsche",
+    # Common standalone American model names
+    "corvette": "Chevrolet", "camaro": "Chevrolet",
+    "mustang": "Ford", "bronco": "Ford",
+    "challenger": "Dodge", "charger": "Dodge",
+    "wrangler": "Jeep", "gladiator": "Jeep",
+    # Standalone keywords
+    "amg": "Mercedes-Benz", "g-wagon": "Mercedes-Benz",
+    "tt": "Audi", "r8": "Audi", "e-tron": "Audi",
+}
+
+# Mercedes: multi-letter prefix + 2-3 digits (E320, ML350, GLE450, CLA250)
+_MERCEDES_MULTI = re.compile(
+    r"^(?:CL[AKES]?|GL[ABCEKS]?|ML|SL[CKR]?)\d{2,3}$", re.I,
+)
+# Mercedes: single-letter class + 3 digits (A220, C300, E320, G500, S550)
+_MERCEDES_SINGLE3 = re.compile(r"^[ACEGS]\d{3}$", re.I)
+# Mercedes: single-letter class + 2 digits (C63, E55, G63, S65)
+_MERCEDES_SINGLE2 = re.compile(r"^[CEGS]\d{2}$", re.I)
+# BMW: 3 digits + optional letter suffix (325i, 528i, 740il)
+_BMW_DIGITS = re.compile(r"^\d{3}[a-z]{0,2}$", re.I)
+# BMW: letter-series (M3, X5, Z4, i4, iX)
+_BMW_SERIES = re.compile(r"^[MXZI]\d{1,2}[a-z]?$", re.I)
+# Audi: A/Q/S + digit (A4, Q5, S6) or RS + digit (RS3, RS7)
+_AUDI_PATTERN = re.compile(r"^(?:[AQS]\d|RS\d)$", re.I)
+
+
+def _lookup_make_from_model_code(code: str) -> str | None:
+    """If *code* is a known model code, return the manufacturer name."""
+    key = code.lower().strip()
+    if key in _MODEL_CODE_EXPLICIT:
+        return _MODEL_CODE_EXPLICIT[key]
+    if _MERCEDES_MULTI.match(key) or _MERCEDES_SINGLE3.match(key) or _MERCEDES_SINGLE2.match(key):
+        return "Mercedes-Benz"
+    if _AUDI_PATTERN.match(key):
+        return "Audi"
+    # BMW last — digit patterns are broad; exclude known Porsche codes
+    if key not in ("911", "718") and (_BMW_DIGITS.match(key) or _BMW_SERIES.match(key)):
+        return "BMW"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Title parser
 # ---------------------------------------------------------------------------
 
@@ -72,6 +122,12 @@ def parse_vehicle_title(title: str) -> dict[str, Any]:
             return {"year": year, "make": None, "model": None, "trim": None}
         make = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
+
+    # Check if parsed "make" is actually a model code (e.g. E320 → Mercedes-Benz)
+    real_make = _lookup_make_from_model_code(make)
+    if real_make:
+        rest = f"{make} {rest}".strip() if rest else make
+        make = real_make
 
     # Try multi-word models for this make
     model = None
@@ -120,6 +176,51 @@ def extract_mileage(text: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Generation / chassis-code lookup
+# ---------------------------------------------------------------------------
+
+def lookup_vehicle_generation(year: int, make: str, model: str) -> dict | None:
+    """Look up the generation/chassis code for a vehicle via LLM-light.
+
+    Returns {"code": "W211", "name": "E-Class", "years": "2003-2009"}
+    or None if unknown.
+    """
+    from marketplace_appraiser.utils.llm import invoke_llm_light
+
+    prompt = f"""\
+What is the generation or chassis code for a {year} {make} {model}?
+
+Reply with ONLY a single line in this exact format:
+CODE | COMMON_NAME | START_YEAR-END_YEAR
+
+Examples:
+W211 | E-Class | 2003-2009
+E46 | 3 Series | 1999-2006
+10th gen | Civic | 2016-2021
+997 | 911 | 2005-2012
+SN95 | Mustang | 1994-2004
+
+Use the most widely recognized chassis/platform/generation code among \
+enthusiasts and mechanics. COMMON_NAME should be the model family name \
+(not the specific sub-model). If there is no well-known generation code, \
+use a format like "3rd gen" or "Mk4".
+
+If you truly cannot determine the generation, reply exactly: UNKNOWN"""
+
+    try:
+        raw = invoke_llm_light(prompt, temperature=0.0)
+        line = raw.strip().splitlines()[0].strip()
+        if line.upper() == "UNKNOWN":
+            return None
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 3:
+            return None
+        return {"code": parts[0], "name": parts[1], "years": parts[2]}
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Config instance
 # ---------------------------------------------------------------------------
 
@@ -158,7 +259,6 @@ professional staging)? Note any "for sale" signage style.""",
     market_search_templates=[
         "{item_name} for sale price",
         "{item_name} Kelley Blue Book value",
-        "{item_name} common problems reliability",
     ],
 
     fraud_patterns=[

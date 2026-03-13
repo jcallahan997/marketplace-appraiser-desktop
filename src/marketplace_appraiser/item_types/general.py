@@ -52,7 +52,6 @@ smoke/odor indicators""",
     market_search_templates=[
         "{item_name} used price for sale",
         "{item_name} retail price new",
-        "{item_name} review quality",
     ],
 
     fraud_patterns=[

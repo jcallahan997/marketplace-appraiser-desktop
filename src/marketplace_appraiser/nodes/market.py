@@ -2,7 +2,7 @@
 
 from marketplace_appraiser.item_types import get_config
 from marketplace_appraiser.state import AppraisalState
-from marketplace_appraiser.utils.llm import invoke_llm
+from marketplace_appraiser.utils.llm import invoke_llm_light
 from marketplace_appraiser.utils.search import safe_search
 
 
@@ -62,10 +62,14 @@ SELLER'S DESCRIPTION (may contain value-relevant details):
 {description}
 """
 
+    from datetime import date as _date
+
     prompt = f"""\
 You are a market research analyst for used {config.display_name.lower()} items. \
 Use the web search results below AND your own knowledge to produce an accurate \
 market value assessment.
+
+Today's date: {_date.today().isoformat()}
 
 ITEM DETAILS:
 - Item: {item_name}
@@ -105,7 +109,7 @@ high demand, collectibility, etc.).
 Be specific with dollar amounts. When uncertain, provide wider ranges \
 rather than false precision."""
 
-    result = invoke_llm(prompt)
+    result = invoke_llm_light(prompt, temperature=0.3, max_tokens=2048)
 
     print(f"  Market analysis generated ({len(result)} chars)")
     return {"market_analysis": result}

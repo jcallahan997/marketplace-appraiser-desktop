@@ -48,7 +48,7 @@ def invoke_llm_premium(prompt: str, temperature: float = 0.3, max_tokens: int = 
     Falls back to the default TEXT_MODEL if not using Claude.
     """
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-    premium_model = os.getenv("PREMIUM_MODEL", "claude-opus-4-6")
+    premium_model = os.getenv("PREMIUM_MODEL", "claude-sonnet-4-20250514")
 
     if not anthropic_key:
         # No Claude key — fall back to standard invoke_llm

@@ -85,7 +85,6 @@ unauthorized repairs, mismatched parts, third-party components""",
     market_search_templates=[
         "{item_name} used price",
         "{item_name} refurbished price buy",
-        "{item_name} review specs",
     ],
 
     fraud_patterns=[

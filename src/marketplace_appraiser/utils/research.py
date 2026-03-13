@@ -13,7 +13,9 @@ from marketplace_appraiser.utils.search import safe_search
 # Options / features lookup and vision scan
 # ---------------------------------------------------------------------------
 
-def search_available_options(item_name: str) -> str:
+def search_available_options(
+    item_name: str, generation: dict | None = None,
+) -> str:
     """Web search for known options, packages, and trim levels.
 
     Returns a block of text describing what options/packages are available
@@ -23,6 +25,11 @@ def search_available_options(item_name: str) -> str:
         f"{item_name} available options packages features list",
         f"{item_name} trim levels standard equipment differences",
     ]
+    if generation:
+        queries.append(
+            f"{generation['code']} {generation['name']}"
+            f" options packages trim levels"
+        )
     all_snippets: list[str] = []
     for query in queries:
         results = safe_search(query, max_results=5)
@@ -175,6 +182,7 @@ def identify_research_questions(
     image_analyses: list[str],
     item_name: str,
     spotted_options: str = "",
+    generation: dict | None = None,
 ) -> list[str]:
     """Ask the LLM to identify claims or terms that need web verification."""
     image_text = ""
@@ -189,19 +197,34 @@ OPTIONS/FEATURES SPOTTED IN PHOTOS (not in seller's description):
 {spotted_options}
 """
 
+    generation_section = ""
+    if generation:
+        generation_section = f"""
+
+VEHICLE GENERATION: {generation['code']} ({generation['name']}, \
+{generation['years']})
+Use this generation/chassis code in some of your search queries — \
+enthusiast forums and mechanic sites organize by generation rather \
+than individual year, so generation-based queries often find richer results.
+"""
+
+    from datetime import date as _date
+
     prompt = f"""\
 You are helping a buyer research a {item_name} listing. Below are the \
 seller's description, photo analysis notes, and any additional options \
 spotted in the photos. Identify specific claims, terms, or observations \
 that a buyer should verify with web research.
 
+Today's date: {_date.today().isoformat()}
+
 SELLER'S DESCRIPTION:
 {description or "(No description provided)"}
 
 PHOTO ANALYSIS NOTES:
 {image_text or "(No photo analyses available)"}
-{options_section}
-List 3-8 concise web search queries that would help verify or understand \
+{options_section}{generation_section}
+List 3-5 concise web search queries that would help verify or understand \
 the most important items. Focus on:
 - Seller claims about repairs, parts, or modifications
 - Technical terms or abbreviations the buyer may not understand
@@ -210,7 +233,8 @@ the most important items. Focus on:
 - Anything that could significantly affect the item's value or safety
 
 Output ONLY the search queries, one per line. No numbering, no explanation. \
-Each query should include "{item_name}" for context where relevant. \
+Each query should include "{item_name}" or the generation code for context \
+where relevant. \
 If everything is straightforward and nothing needs research, output exactly: \
 NONE"""
 
@@ -231,7 +255,7 @@ NONE"""
         if line:
             cleaned.append(line)
 
-    return cleaned[:8]
+    return cleaned[:5]
 
 
 # ---------------------------------------------------------------------------
