@@ -1,0 +1,142 @@
+# =============================================================================
+# Marketplace Appraiser — Full Stack
+# =============================================================================
+# Usage:
+#   docker-compose up --build         # Build and start all services
+#   docker-compose down               # Stop all services
+#   docker-compose down -v            # Stop and delete volumes (reset Langfuse DB)
+#
+# Services:
+#   app       → http://localhost:8000   Dashboard + API
+#   langfuse  → http://localhost:3002   Langfuse tracing UI
+#   chrome    → localhost:9222          Headless Chrome (CDP)
+#   postgres  → internal only           Langfuse database
+#
+# Facebook Auth Note:
+#   The containerized Chrome has no Facebook session. For Facebook Marketplace
+#   scraping, run Chrome on your host with:
+#     ./scripts/launch_chrome.sh
+#   Then override in .env:
+#     CHROME_CDP_URL=http://host.docker.internal:9222
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Marketplace Appraiser (FastAPI + React dashboard)
+  # ---------------------------------------------------------------------------
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TEXT_MODEL=${TEXT_MODEL:-}
+      - VISION_MODEL=${VISION_MODEL:-}
+      # Search
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      # Browser
+      - CHROME_CDP_URL=${CHROME_CDP_URL:-http://chrome:9222}
+      # Email
+      - GMAIL_USER=${GMAIL_USER:-}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
+      - EMAIL_TO=${EMAIL_TO:-}
+      # Langfuse (matches auto-provisioned keys below)
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-local}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-local}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+    volumes:
+      - ./output:/app/output
+    depends_on:
+      langfuse:
+        condition: service_healthy
+      chrome:
+        condition: service_started
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Headless Chrome (CDP for Playwright scraping)
+  # ---------------------------------------------------------------------------
+  chrome:
+    image: zenika/alpine-chrome:latest
+    command:
+      - "--no-sandbox"
+      - "--remote-debugging-address=0.0.0.0"
+      - "--remote-debugging-port=9222"
+      - "--disable-gpu"
+      - "--headless"
+      - "--disable-dev-shm-usage"
+    ports:
+      - "9222:9222"
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Langfuse — LLM Observability & Tracing
+  # ---------------------------------------------------------------------------
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "3002:3000"
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://langfuse:langfuse@postgres:5432/langfuse
+      # Auth
+      - NEXTAUTH_URL=http://localhost:3002
+      - NEXTAUTH_SECRET=marketplace-appraiser-langfuse-secret
+      - SALT=marketplace-appraiser-langfuse-salt
+      # Auto-provision org, project, and API keys on first boot
+      - LANGFUSE_INIT_ORG_ID=marketplace-appraiser
+      - LANGFUSE_INIT_ORG_NAME=Marketplace Appraiser
+      - LANGFUSE_INIT_PROJECT_ID=marketplace-appraiser
+      - LANGFUSE_INIT_PROJECT_NAME=Marketplace Appraiser
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-local
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-local
+      - LANGFUSE_INIT_USER_EMAIL=admin@local.dev
+      - LANGFUSE_INIT_USER_NAME=Admin
+      - LANGFUSE_INIT_USER_PASSWORD=password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/public/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (Langfuse backend)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_DB=langfuse
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Ollama — Local LLM (uncomment if not using Anthropic API)
+  # ---------------------------------------------------------------------------
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   environment:
+  #     - OLLAMA_HOST=0.0.0.0
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+
+volumes:
+  pgdata:
+  # ollama_data:

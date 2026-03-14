@@ -856,10 +856,10 @@ async def _scrape(url: str) -> dict:
 
             # Build item_name from parsed fields or raw title
             if item_type == "vehicle":
-                year = item_fields.get("year", "")
-                make = item_fields.get("make", "")
-                model = item_fields.get("model", "")
-                trim = item_fields.get("trim", "")
+                year = item_fields.get("year") or ""
+                make = item_fields.get("make") or ""
+                model = item_fields.get("model") or ""
+                trim = item_fields.get("trim") or ""
                 trim_str = f" {trim}" if trim else ""
                 item_name = f"{year} {make} {model}{trim_str}".strip() or title
                 # Extract mileage for vehicles

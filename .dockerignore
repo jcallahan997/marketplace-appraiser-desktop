@@ -1,0 +1,28 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.egg-info
+dist
+build
+.pytest_cache
+.DS_Store
+.env
+
+# Desktop app (not containerized)
+electron/
+
+# Output is bind-mounted, not baked into image
+output/history/
+output/images/
+output/feedback/
+output/evals/
+output/test_runs/
+
+# Rebuilt inside Docker
+dashboard/node_modules/
+dashboard/dist/
+
+# Not needed in production image
+tests/
+.claude/
