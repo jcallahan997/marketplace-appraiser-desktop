@@ -83,13 +83,9 @@ Be specific about location and severity.\
 
 
 def _analyze_with_claude(prompt: str, image_paths: list[str], model: str) -> list[str]:
-    """Analyze images using the Anthropic Claude API with retry."""
-    import anthropic
+    """Analyze images using the Anthropic Claude API with retry + Langfuse."""
+    from marketplace_appraiser.utils.llm import _call_claude
 
-    MAX_RETRIES = 5
-    INITIAL_BACKOFF = 2
-
-    client = anthropic.Anthropic()
     analyses: list[str] = []
 
     for i, img_path in enumerate(image_paths):
@@ -100,42 +96,28 @@ def _analyze_with_claude(prompt: str, image_paths: list[str], model: str) -> lis
 
             media_type = mimetypes.guess_type(img_path)[0] or "image/jpeg"
 
-            analysis = None
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    response = client.messages.create(
-                        model=model,
-                        max_tokens=512,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "image",
-                                        "source": {
-                                            "type": "base64",
-                                            "media_type": media_type,
-                                            "data": img_data,
-                                        },
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": prompt,
-                                    },
-                                ],
-                            }
-                        ],
-                    )
-                    analysis = response.content[0].text
-                    break
-                except (anthropic.OverloadedError, anthropic.InternalServerError,
-                        anthropic.RateLimitError) as e:
-                    if attempt == MAX_RETRIES:
-                        raise
-                    wait = INITIAL_BACKOFF * (2 ** (attempt - 1))
-                    print(f"    Retry {attempt}/{MAX_RETRIES} after "
-                          f"{type(e).__name__} — waiting {wait}s...")
-                    time.sleep(wait)
+            content_blocks = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": img_data,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": prompt,
+                },
+            ]
+
+            analysis = _call_claude(
+                content_blocks,
+                model=model,
+                max_tokens=512,
+                temperature=0.3,
+                tier="vision",
+            )
 
             analyses.append(analysis)
             print(f"  Done ({len(analysis)} chars)")

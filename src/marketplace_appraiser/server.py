@@ -50,37 +50,8 @@ load_dotenv(override=False)
 _langfuse_enabled = bool(os.getenv("LANGFUSE_PUBLIC_KEY"))
 
 if _langfuse_enabled:
-    # Shim: langfuse SDK v2 imports from langchain.callbacks.base and
-    # langchain.schema, but langchain v1.x moved these to langchain_core.
-    # Patch sys.modules so the imports resolve at runtime.
-    import types as _types
-
-    def _ensure_langchain_compat():
-        import importlib
-        try:
-            importlib.import_module("langchain.callbacks.base")
-        except (ImportError, ModuleNotFoundError):
-            import langchain
-            import langchain_core.callbacks.base as _cb_base
-            import langchain_core.agents as _agents
-            import langchain_core.documents as _docs
-
-            cb_pkg = _types.ModuleType("langchain.callbacks")
-            cb_pkg.__path__ = []
-            sys.modules["langchain.callbacks"] = cb_pkg
-            sys.modules["langchain.callbacks.base"] = _cb_base
-
-            schema_pkg = _types.ModuleType("langchain.schema")
-            schema_pkg.__path__ = []
-            sys.modules["langchain.schema"] = schema_pkg
-            sys.modules["langchain.schema.agent"] = _agents
-            sys.modules["langchain.schema.document"] = _docs
-
-    _ensure_langchain_compat()
-
     try:
         from langfuse import Langfuse as _LangfuseClient
-        from langfuse.callback import CallbackHandler as LangfuseHandler
     except ImportError:
         _langfuse_enabled = False
 
@@ -338,16 +309,21 @@ def _run_pipeline_thread(
         if email_to:
             initial_state["email_to"] = email_to
 
-        langfuse_handler = None
-        invoke_config = {}
+        langfuse_trace = None
+        langfuse_client = None
         if _langfuse_enabled:
-            langfuse_handler = LangfuseHandler(
-                trace_name=f"appraisal-{run_id}",
-                metadata={"run_id": run_id, "listing_url": listing_url},
-            )
-            invoke_config["callbacks"] = [langfuse_handler]
+            try:
+                from marketplace_appraiser.utils.langfuse_ctx import set_trace
+                langfuse_client = _LangfuseClient()
+                langfuse_trace = langfuse_client.trace(
+                    name=f"appraisal-{run_id}",
+                    metadata={"run_id": run_id, "listing_url": listing_url},
+                )
+                set_trace(langfuse_trace)
+            except Exception:
+                langfuse_trace = None
 
-        result = app_graph.invoke(initial_state, config=invoke_config)
+        result = app_graph.invoke(initial_state)
 
         # Build report for history/preview
         try:
@@ -369,39 +345,39 @@ def _run_pipeline_thread(
         langfuse_cost = None
         langfuse_latency = None
         langfuse_trace_url = None
-        if _langfuse_enabled and langfuse_handler is not None:
+        if _langfuse_enabled and langfuse_trace is not None:
             try:
-                langfuse_handler.flush()
-                trace_id = langfuse_handler.get_trace_id()
-                if trace_id:
-                    langfuse_client = _LangfuseClient()
-                    trace = None
-                    # Retry with backoff — Langfuse needs time to ingest
-                    for delay in (3, 5, 10):
-                        time.sleep(delay)
-                        try:
-                            fetched = langfuse_client.fetch_trace(trace_id)
-                            if fetched.data and fetched.data.total_cost is not None:
-                                trace = fetched.data
-                                break
-                        except Exception:
-                            continue
-                    if trace is not None:
-                        langfuse_cost = trace.total_cost
-                        langfuse_latency = trace.latency
-                    langfuse_host = os.getenv("LANGFUSE_HOST", "")
-                    external_host = langfuse_host.replace(
-                        "http://langfuse:3000", "http://localhost:3002"
-                    )
-                    langfuse_trace_url = f"{external_host}/trace/{trace_id}"
-                    update_run(
-                        run_id,
-                        langfuse_trace_id=trace_id,
-                        langfuse_total_cost=langfuse_cost,
-                        langfuse_latency=langfuse_latency,
-                        langfuse_trace_url=langfuse_trace_url,
-                    )
-                    langfuse_client.shutdown()
+                from marketplace_appraiser.utils.langfuse_ctx import clear_trace
+                clear_trace()
+                trace_id = langfuse_trace.id
+                langfuse_client.flush()
+                trace = None
+                # Retry with backoff — Langfuse needs time to ingest
+                for delay in (3, 5, 10):
+                    time.sleep(delay)
+                    try:
+                        fetched = langfuse_client.fetch_trace(trace_id)
+                        if fetched.data and fetched.data.total_cost is not None:
+                            trace = fetched.data
+                            break
+                    except Exception:
+                        continue
+                if trace is not None:
+                    langfuse_cost = trace.total_cost
+                    langfuse_latency = trace.latency
+                langfuse_host = os.getenv("LANGFUSE_HOST", "")
+                external_host = langfuse_host.replace(
+                    "http://langfuse:3000", "http://localhost:3002"
+                )
+                langfuse_trace_url = f"{external_host}/trace/{trace_id}"
+                update_run(
+                    run_id,
+                    langfuse_trace_id=trace_id,
+                    langfuse_total_cost=langfuse_cost,
+                    langfuse_latency=langfuse_latency,
+                    langfuse_trace_url=langfuse_trace_url,
+                )
+                langfuse_client.shutdown()
             except Exception:
                 pass  # Langfuse fetch is best-effort
 
@@ -426,6 +402,11 @@ def _run_pipeline_thread(
     finally:
         # Clean up thread-local
         _thread_local.run_id = None
+        try:
+            from marketplace_appraiser.utils.langfuse_ctx import clear_trace
+            clear_trace()
+        except Exception:
+            pass
         pipeline_mgr.finish_run(run_id)
         pipeline_mgr.cleanup_old_runs()
         loop.call_soon_threadsafe(

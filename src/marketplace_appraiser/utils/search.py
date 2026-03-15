@@ -63,6 +63,23 @@ def _tavily_search(query: str, max_results: int = 5) -> list[dict]:
                 "body": r.get("content", ""),
                 "href": r.get("url", ""),
             })
+
+        # Report to Langfuse
+        try:
+            from marketplace_appraiser.utils.langfuse_ctx import get_trace
+            trace = get_trace()
+            if trace:
+                trace.span(
+                    name="tavily-search",
+                    input={"query": query, "max_results": max_results},
+                    output={
+                        "results_count": len(results),
+                        "titles": [r["title"] for r in results[:5]],
+                    },
+                )
+        except Exception:
+            pass
+
         return results
     except Exception as e:
         print(f"  [search] Tavily failed for '{query[:60]}': {e}")
