@@ -5,8 +5,8 @@
 #   docker-compose -f docker-compose.langfuse.yml up -d
 #
 # Then add to your .env:
-#   LANGFUSE_PUBLIC_KEY=pk-lf-local
-#   LANGFUSE_SECRET_KEY=sk-lf-local
+#   LANGFUSE_PUBLIC_KEY=<from Langfuse UI>
+#   LANGFUSE_SECRET_KEY=<from Langfuse UI>
 #   LANGFUSE_HOST=http://localhost:3002
 #
 # Langfuse UI: http://localhost:3002

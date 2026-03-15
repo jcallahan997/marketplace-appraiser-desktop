@@ -50,9 +50,37 @@ load_dotenv(override=False)
 _langfuse_enabled = bool(os.getenv("LANGFUSE_PUBLIC_KEY"))
 
 if _langfuse_enabled:
+    # Shim: langfuse SDK v2 imports from langchain.callbacks.base and
+    # langchain.schema, but langchain v1.x moved these to langchain_core.
+    # Patch sys.modules so the imports resolve at runtime.
+    import types as _types
+
+    def _ensure_langchain_compat():
+        import importlib
+        try:
+            importlib.import_module("langchain.callbacks.base")
+        except (ImportError, ModuleNotFoundError):
+            import langchain
+            import langchain_core.callbacks.base as _cb_base
+            import langchain_core.agents as _agents
+            import langchain_core.documents as _docs
+
+            cb_pkg = _types.ModuleType("langchain.callbacks")
+            cb_pkg.__path__ = []
+            sys.modules["langchain.callbacks"] = cb_pkg
+            sys.modules["langchain.callbacks.base"] = _cb_base
+
+            schema_pkg = _types.ModuleType("langchain.schema")
+            schema_pkg.__path__ = []
+            sys.modules["langchain.schema"] = schema_pkg
+            sys.modules["langchain.schema.agent"] = _agents
+            sys.modules["langchain.schema.document"] = _docs
+
+    _ensure_langchain_compat()
+
     try:
-        from langfuse import get_client as _get_langfuse_client
-        from langfuse.langchain import CallbackHandler as LangfuseHandler
+        from langfuse import Langfuse as _LangfuseClient
+        from langfuse.callback import CallbackHandler as LangfuseHandler
     except ImportError:
         _langfuse_enabled = False
 
@@ -344,34 +372,36 @@ def _run_pipeline_thread(
         if _langfuse_enabled and langfuse_handler is not None:
             try:
                 langfuse_handler.flush()
-                langfuse_client = _get_langfuse_client()
-                trace = None
-                # Retry with backoff — Langfuse needs time to ingest the trace
-                for delay in (3, 5, 10):
-                    time.sleep(delay)
-                    try:
-                        trace = langfuse_client.api.trace.get(langfuse_handler.trace_id)
-                        if trace.total_cost is not None:
-                            break
-                    except Exception:
-                        continue
-                if trace is None:
-                    raise RuntimeError("Failed to fetch Langfuse trace after retries")
-                langfuse_cost = trace.total_cost
-                langfuse_latency = trace.latency
-                langfuse_host = os.getenv("LANGFUSE_HOST", "")
-                # For the UI link, use the external host (not internal Docker URL)
-                external_host = langfuse_host.replace(
-                    "http://langfuse:3000", "http://localhost:3002"
-                )
-                langfuse_trace_url = f"{external_host}/trace/{langfuse_handler.trace_id}"
-                update_run(
-                    run_id,
-                    langfuse_trace_id=langfuse_handler.trace_id,
-                    langfuse_total_cost=langfuse_cost,
-                    langfuse_latency=langfuse_latency,
-                    langfuse_trace_url=langfuse_trace_url,
-                )
+                trace_id = langfuse_handler.get_trace_id()
+                if trace_id:
+                    langfuse_client = _LangfuseClient()
+                    trace = None
+                    # Retry with backoff — Langfuse needs time to ingest
+                    for delay in (3, 5, 10):
+                        time.sleep(delay)
+                        try:
+                            fetched = langfuse_client.fetch_trace(trace_id)
+                            if fetched.data and fetched.data.total_cost is not None:
+                                trace = fetched.data
+                                break
+                        except Exception:
+                            continue
+                    if trace is not None:
+                        langfuse_cost = trace.total_cost
+                        langfuse_latency = trace.latency
+                    langfuse_host = os.getenv("LANGFUSE_HOST", "")
+                    external_host = langfuse_host.replace(
+                        "http://langfuse:3000", "http://localhost:3002"
+                    )
+                    langfuse_trace_url = f"{external_host}/trace/{trace_id}"
+                    update_run(
+                        run_id,
+                        langfuse_trace_id=trace_id,
+                        langfuse_total_cost=langfuse_cost,
+                        langfuse_latency=langfuse_latency,
+                        langfuse_trace_url=langfuse_trace_url,
+                    )
+                    langfuse_client.shutdown()
             except Exception:
                 pass  # Langfuse fetch is best-effort
 

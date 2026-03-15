@@ -79,13 +79,10 @@ services:
     ports:
       - "3002:3000"
     environment:
-      # Database
       - DATABASE_URL=postgresql://langfuse:langfuse@postgres:5432/langfuse
-      # Auth
       - NEXTAUTH_URL=http://localhost:3002
       - NEXTAUTH_SECRET=marketplace-appraiser-langfuse-secret
       - SALT=marketplace-appraiser-langfuse-salt
-      # Auto-provision org, project, and API keys on first boot
       - LANGFUSE_INIT_ORG_ID=marketplace-appraiser
       - LANGFUSE_INIT_ORG_NAME=Marketplace Appraiser
       - LANGFUSE_INIT_PROJECT_ID=marketplace-appraiser
