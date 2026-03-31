@@ -1,6 +1,6 @@
 # Marketplace Appraiser
 
-**An agentic AI pipeline that appraises Facebook Marketplace listings end-to-end — from a single URL to a detailed buy/pass recommendation.**
+**An agentic AI pipeline that appraises Facebook Marketplace listings end-to-end — from a single URL to a detailed buy/pass recommendation. Packaged as an Electron desktop app with a split-pane UI: browse Facebook Marketplace on the left, see real-time appraisal progress on the right.**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Pipeline-1C3C3C?logo=langchain&logoColor=white)](https://github.com/langchain-ai/langgraph)
@@ -10,6 +10,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Playwright](https://img.shields.io/badge/Playwright-Scraping-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
 [![Langfuse](https://img.shields.io/badge/Langfuse-Observability-000000)](https://langfuse.com/)
+[![Electron](https://img.shields.io/badge/Electron-Desktop-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 <!-- TODO: Add a screenshot of the dashboard or email report here -->
@@ -30,7 +31,7 @@ Given a Facebook Marketplace listing URL, the appraiser autonomously:
 5. **Produces a final appraisal** with a **BUY / NEGOTIATE / PASS** recommendation
 6. **Sends an HTML email report** (optional) with all findings
 
-The web dashboard uses the same Chrome browser session for scraping, so you can browse Facebook Marketplace normally, find a listing, and kick off an appraisal — no need to copy/paste URLs manually.
+The **Electron desktop app** presents a split-pane window: Facebook Marketplace on the left, the appraisal dashboard on the right. When you navigate to a listing, the app auto-detects the URL and fills it into the dashboard — no copy/paste needed. It also works as a standalone CLI or web dashboard.
 
 It auto-detects the item category (vehicles, electronics, furniture, or general) and adjusts prompts, search queries, fraud patterns, and safety checks accordingly.
 
@@ -42,7 +43,8 @@ It auto-detects the item category (vehicles, electronics, furniture, or general)
 - **Seller investigation** — profile scraping, reputation research, risk scoring
 - **Safety checks** — NHTSA vehicle recalls, CPSC consumer product alerts
 - **Dual LLM support** — Claude API (recommended) or Ollama for fully local inference
-- **Real-time dashboard** — React + WebSocket UI with live pipeline progress
+- **Electron desktop app** — split-pane UI with Facebook Marketplace browser + live dashboard, auto-detects listing URLs
+- **Real-time dashboard** — React + WebSocket UI with live pipeline progress (also runs standalone in browser)
 - **LLM observability** — Langfuse integration for token usage, latency, and cost tracking
 - **Email reports** — styled HTML summaries delivered via Gmail SMTP
 - **Docker deployment** — multi-stage build with headless Chrome, Langfuse, and Postgres
@@ -83,6 +85,7 @@ The pipeline is a linear [LangGraph](https://github.com/langchain-ai/langgraph) 
 | **Web Search** | Tavily / DuckDuckGo | Market comps, seller research, safety recalls |
 | **Scraping** | Playwright + Chrome CDP | Browser-based Facebook Marketplace extraction |
 | **Backend** | FastAPI + Uvicorn | REST API + WebSocket server for dashboard |
+| **Desktop App** | Electron | Split-pane UI: Marketplace browser + dashboard |
 | **Frontend** | React 19, TypeScript, Tailwind CSS, Vite | Real-time dashboard with pipeline progress |
 | **Observability** | Langfuse | Token/cost tracking, latency traces, LLM analytics |
 | **Safety APIs** | NHTSA, CPSC | Vehicle recall checks, consumer product alerts |
@@ -129,6 +132,12 @@ dashboard/                    # React + Vite frontend
 ├── package.json
 └── vite.config.ts
 
+electron/                     # Electron desktop app
+├── main.js                   # Main process: split-pane window, CDP, FastAPI child process
+├── preload.js                # Bridge: auto-fills listing URL into dashboard
+├── package.json
+└── scripts/make-icon.py      # Icon generation script
+
 scripts/
 ├── launch_chrome.sh          # Start Chrome with CDP on port 9222
 ├── evaluate.py               # Eval framework for pipeline quality
@@ -152,8 +161,8 @@ tests/
 ### Installation
 
 ```bash
-git clone https://github.com/jcallahan997/agentic-marketplace-appraiser.git
-cd agentic-marketplace-appraiser
+git clone https://github.com/jcallahan997/marketplace-appraiser-desktop.git
+cd marketplace-appraiser-desktop
 
 python3.11 -m venv .venv
 source .venv/bin/activate
@@ -189,7 +198,19 @@ cp .env.template .env
 
 ### Usage
 
-#### 1. Launch Chrome with remote debugging
+#### 1. Run the Electron desktop app (recommended)
+
+```bash
+# Install Electron dependencies
+cd electron && npm install && cd ..
+
+# Start the desktop app (launches FastAPI + dashboard automatically)
+cd electron && npm start
+```
+
+The app opens a split-pane window: Facebook Marketplace on the left, the appraisal dashboard on the right. Browse to any listing and the URL auto-fills into the dashboard. Click "Start Appraisal" to run the pipeline.
+
+#### 2. Launch Chrome with remote debugging (CLI / standalone dashboard)
 
 ```bash
 ./scripts/launch_chrome.sh
@@ -197,7 +218,7 @@ cp .env.template .env
 
 This opens Chrome on port 9222 with a dedicated profile. Log into Facebook in the browser window that opens.
 
-#### 2. Run the appraiser (CLI)
+#### 3. Run the appraiser (CLI)
 
 ```bash
 # Basic appraisal
@@ -210,7 +231,7 @@ python -m marketplace_appraiser "https://www.facebook.com/marketplace/item/12345
 python -m marketplace_appraiser "https://www.facebook.com/marketplace/item/123456789/" --email you@example.com
 ```
 
-#### 3. Run the dashboard (web UI)
+#### 4. Run the dashboard (web UI)
 
 ```bash
 # Terminal 1: Start the API server
