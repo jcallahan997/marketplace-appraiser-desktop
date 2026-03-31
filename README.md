@@ -30,6 +30,8 @@ Given a Facebook Marketplace listing URL, the appraiser autonomously:
 5. **Produces a final appraisal** with a **BUY / NEGOTIATE / PASS** recommendation
 6. **Sends an HTML email report** (optional) with all findings
 
+The web dashboard uses the same Chrome browser session for scraping, so you can browse Facebook Marketplace normally, find a listing, and kick off an appraisal — no need to copy/paste URLs manually.
+
 It auto-detects the item category (vehicles, electronics, furniture, or general) and adjusts prompts, search queries, fraud patterns, and safety checks accordingly.
 
 ## Key Features
