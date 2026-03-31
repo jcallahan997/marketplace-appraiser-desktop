@@ -398,7 +398,7 @@ def _research_seller_web(
         parts = seller_name.strip().split()
         surname = parts[-1] if len(parts) > 1 else parts[0]
         results = safe_search(
-            f'"{surname}" surname origin ethnicity', max_results=3
+            f'"{surname}" surname origin nationality', max_results=3
         )
         for r in results:
             body = r.get("body", "")

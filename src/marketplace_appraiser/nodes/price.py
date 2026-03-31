@@ -234,23 +234,23 @@ and seller reputation is good, you CAN recommend BUY.
 Judge it on price and condition like any other listing.\
 """
 
-    # --- Seller ethnicity (parsed from seller investigation — no extra API calls) ---
-    seller_ethnicity = ""
-    seller_ethnicity_reasoning = ""
+    # --- Seller cultural origin (parsed from seller investigation — no extra API calls) ---
+    seller_origin = ""
+    seller_origin_reasoning = ""
     if seller_investigation:
         bg_match = re.search(
             r"BACKGROUND:\s*(.+?)(?:\n|$)", seller_investigation, re.IGNORECASE
         )
         if bg_match:
-            seller_ethnicity = bg_match.group(1).replace("**", "").strip()
+            seller_origin = bg_match.group(1).replace("**", "").strip()
         reason_match = re.search(
             r"REASONING:\s*(.+?)(?:\n##|\Z)", seller_investigation,
             re.IGNORECASE | re.DOTALL,
         )
         if reason_match:
-            seller_ethnicity_reasoning = reason_match.group(1).replace("**", "").strip()
-        if seller_ethnicity:
-            print(f"  Seller background (from investigation): {seller_ethnicity}")
+            seller_origin_reasoning = reason_match.group(1).replace("**", "").strip()
+        if seller_origin:
+            print(f"  Seller background (from investigation): {seller_origin}")
 
     # --- Safety checks ---
     print("  Running safety checks...")
@@ -338,8 +338,8 @@ Format your response clearly with labeled sections."""
 
     return {
         "price_assessment": result,
-        "seller_ethnicity": seller_ethnicity,
-        "seller_ethnicity_reasoning": seller_ethnicity_reasoning,
+        "seller_origin": seller_origin,
+        "seller_origin_reasoning": seller_origin_reasoning,
         "safety_info": safety_info,
         "flip_signals": flip_signals,
         "flip_risk_level": flip_risk_level,

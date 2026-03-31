@@ -1,7 +1,10 @@
-output/images/
-output/*.md
-output/.Rhistory
+# Secrets
 .env
+
+# Output artifacts
+output/
+
+# Python
 __pycache__/
 *.pyc
 .venv/
@@ -9,8 +12,12 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
-.DS_Store
-electron/node_modules/
-dashboard/node_modules/
+
+# Node / Frontend
+node_modules/
 dashboard/dist/
-output/history/
+dashboard/.vite/
+
+# IDE / Tool configs
+.DS_Store
+.claude/

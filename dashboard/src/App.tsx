@@ -72,7 +72,7 @@ function App() {
                 <span className="text-teal-600">&#9672;</span> Marketplace Appraiser
               </h1>
               <a
-                href="http://localhost:3002/project/marketplace-appraiser"
+                href={`http://${window.location.hostname}:3002/project/marketplace-appraiser`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 hover:text-gray-700 transition-colors"

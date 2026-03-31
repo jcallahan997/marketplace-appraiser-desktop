@@ -378,8 +378,8 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
 
     seller_joined = state.get("seller_joined", "")
     seller_listings = state.get("seller_listings", "")
-    seller_ethnicity = state.get("seller_ethnicity", "")
-    seller_ethnicity_reasoning = state.get("seller_ethnicity_reasoning", "")
+    seller_origin = state.get("seller_origin", "")
+    seller_origin_reasoning = state.get("seller_origin_reasoning", "")
     listing_age_text = state.get("listing_age_text", "")
     listing_age_days = state.get("listing_age_days")
     seller_investigation = state.get("seller_investigation", "")
@@ -400,8 +400,8 @@ Output ONLY the subject line, nothing else. No quotes, no prefix."""
     seller_info_parts = []
     if seller_name:
         seller_info_parts.append(seller_name)
-    if seller_ethnicity:
-        seller_info_parts.append(f"({seller_ethnicity})")
+    if seller_origin:
+        seller_info_parts.append(f"({seller_origin})")
     if seller_rating:
         seller_info_parts.append(seller_rating)
     if seller_joined:
@@ -893,8 +893,8 @@ max-width: 700px; margin: 0 auto; padding: 16px; color: #222;">
         parts = []
         if seller_name:
             parts.append(seller_name)
-        if seller_ethnicity:
-            parts.append(f"({seller_ethnicity})")
+        if seller_origin:
+            parts.append(f"({seller_origin})")
         if seller_rating:
             parts.append(seller_rating)
         if seller_joined:
@@ -902,8 +902,8 @@ max-width: 700px; margin: 0 auto; padding: 16px; color: #222;">
         if seller_listings:
             parts.append(f"{seller_listings} listings")
         seller_text = f"\nSeller: {' — '.join(parts)}"
-        if seller_ethnicity_reasoning:
-            seller_text += f"\n  Background reasoning: {seller_ethnicity_reasoning}"
+        if seller_origin_reasoning:
+            seller_text += f"\n  Origin reasoning: {seller_origin_reasoning}"
 
     condition_text = f"\nCondition: {condition_listed}" if condition_listed else ""
     listing_age_plain = ""

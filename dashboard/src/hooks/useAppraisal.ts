@@ -5,10 +5,10 @@ const API = "/api";
 
 export interface UseAppraisalReturn {
   startAppraisal: (url: string, sendEmail: boolean) => Promise<string | null>;
-  resetPipeline: () => Promise<void>;
   runs: RunSummary[];
   refreshRuns: () => Promise<void>;
   sendEmail: (runId: string) => Promise<boolean>;
+  resetPipeline: () => Promise<void>;
   loading: boolean;
   error: string | null;
 }
@@ -65,7 +65,7 @@ export function useAppraisal(): UseAppraisalReturn {
       await fetch(`${API}/reset`, { method: "POST" });
       setError(null);
     } catch {
-      // ignore
+      // silently fail
     }
   }, []);
 
@@ -83,5 +83,5 @@ export function useAppraisal(): UseAppraisalReturn {
     refreshRuns();
   }, [refreshRuns]);
 
-  return { startAppraisal, resetPipeline, runs, refreshRuns, sendEmail, loading, error };
+  return { startAppraisal, runs, refreshRuns, sendEmail, resetPipeline, loading, error };
 }
