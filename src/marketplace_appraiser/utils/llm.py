@@ -85,7 +85,7 @@ def _call_claude(
                     pass  # Never break pipeline for observability
 
             return output_text
-        except (anthropic.OverloadedError, anthropic.InternalServerError,
+        except (anthropic.InternalServerError,
                 anthropic.RateLimitError) as e:
             if attempt == MAX_RETRIES:
                 raise

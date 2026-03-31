@@ -142,7 +142,7 @@ def _options_claude(prompt: str, image_paths: list[str], model: str) -> str:
                 messages=[{"role": "user", "content": content}],
             )
             return response.content[0].text
-        except (anthropic.OverloadedError, anthropic.InternalServerError,
+        except (anthropic.InternalServerError,
                 anthropic.RateLimitError) as e:
             if attempt == MAX_RETRIES:
                 print(f"    Options scan failed after {MAX_RETRIES} retries: {e}")
