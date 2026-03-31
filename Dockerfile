@@ -5,8 +5,8 @@ FROM node:20-alpine AS dashboard-builder
 
 WORKDIR /build
 
-COPY dashboard/package.json dashboard/package-lock.json ./
-RUN npm ci
+COPY dashboard/package.json ./
+RUN npm install
 
 COPY dashboard/ ./
 RUN npm run build
